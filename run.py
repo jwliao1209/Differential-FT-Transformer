@@ -2,8 +2,6 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from datetime import datetime
 
-import wandb
-
 from src.models import get_model
 from src.metric import cls_eval_funs, reg_eval_funs
 from src.trainer import Trainer
@@ -12,7 +10,7 @@ from src.utils import load_pkl_data, set_random_seed
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
-    parser.add_argument('--data_dir', type=str, required=True)
+    parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
     parser.add_argument('--model', type=str, default='dftt')
     parser.add_argument('--n_epoch', type=int, default=100)
@@ -27,12 +25,15 @@ def main() -> None:
     set_random_seed()
 
     data_dict = load_pkl_data(Path(args.data_dir, args.data_id, '0.pkl'))
-    train_X = data_dict['x_train']
-    train_y = data_dict['y_train' if not args.target_transform else 'y_train_transform']
-    test_X = data_dict['x_test']
-    test_y = data_dict['y_test' if not args.target_transform else 'y_test_transform']
     n_class = data_dict['label_cat_count']
     task = 'r' if n_class == -1 else 'c'
+
+    target_transform = args.target_transform if task == 'r' else False
+    train_X = data_dict['x_train']
+    train_y = data_dict['y_train' if not target_transform else 'y_train_transform']
+    test_X = data_dict['x_test']
+    test_y = data_dict['y_test' if not target_transform else 'y_test_transform']
+
     model_params = {
         'category_column_count': data_dict['col_cat_count'],
     }
@@ -46,6 +47,7 @@ def main() -> None:
     if args.debug:
         wandb = None
     else:
+        import wandb
         wandb.init(
             project='DiffFTTransformer',
             group=str(args.data_id),

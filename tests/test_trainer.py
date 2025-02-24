@@ -34,6 +34,7 @@ def setup_trainer():
     n_epoch = 5
     lr = 1e-4
     weight_decay = 1e-5
+    metric = 'r2'
     eval_funs = {
         "r2": r2_score,
     }
@@ -43,16 +44,10 @@ def setup_trainer():
         n_epoch=n_epoch,
         lr=lr,
         weight_decay=weight_decay,
+        metric=metric,
         eval_funs=eval_funs,
     )
     return trainer
-
-
-def test_set_random_seed(setup_trainer):
-    """Test setting random seed."""
-    trainer = setup_trainer
-    trainer.set_random_seed(random_state=42)
-    assert torch.initial_seed() == 42
 
 
 def test_set_optimization(setup_trainer):
@@ -75,6 +70,7 @@ def test_train(setup_trainer):
         batch_size=trainer.batch_size,
         shuffle=True
     )
+    trainer.model.to(trainer.device)
     initial_weight = trainer.model.linear.weight.clone()
     trainer.train(train_loader)
     # Check if model weights are updated
@@ -92,6 +88,7 @@ def test_test(setup_trainer):
         batch_size=trainer.batch_size,
         shuffle=False
     )
+    trainer.model.to(trainer.device)
     result = trainer.test(test_loader)
     assert "r2" in result
     assert result["r2"] <= 1.0
@@ -107,6 +104,7 @@ def test_fit(setup_trainer):
     test_y = torch.randn(32, 1)
 
     trainer.fit(train_X, train_y, test_X=test_X, test_y=test_y)
+    trainer.model.to(trainer.device)
 
     # Check if model weights are updated during training
     initial_weight = trainer.model.linear.weight.clone()

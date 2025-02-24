@@ -29,7 +29,7 @@ def test_extract_feature_metadata(setup_tokenizer):
     assert index_info['numerical_index'] == expected_numerical_index
     assert index_info['categorical_index'] == expected_categorical_index
     assert index_info['categorical_count'] == expected_categorical_count
-    torch.testing.assert_close(index_info['categorical_offset'], expected_categorical_offset)
+    torch.testing.assert_close(tokenizer.categorical_offset, expected_categorical_offset)
 
 
 def test_layers_initialization(setup_tokenizer):

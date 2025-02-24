@@ -9,11 +9,32 @@ from torch import nn
 class ReGLU(nn.Module):
     """
     Rectified Gated Linear Unit (ReGLU)
-    reference: https://arxiv.org/abs/2002.05202v1
+    reference: https://arxiv.org/abs/2002.05202
     """
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x1, x2 = x.chunk(2, dim=-1)
         return x1 * F.relu(x2)
+
+
+class SwiGLU(nn.Module):
+    """
+    Swish-Gated Linear Unit (SwiGLU)
+    reference: https://arxiv.org/abs/2002.05202
+    """
+    def __init__(self, in_features: int, out_features: Optional[int] = None) -> None:
+        super().__init__()
+        out_features = out_features if out_features is not None else in_features
+        mid_features = int(in_features * 8 / 3)
+        self.WG = nn.Linear(in_features, mid_features, bias=False)
+        self.W1 = nn.Linear(in_features, mid_features, bias=False)
+        self.W2 = nn.Linear(mid_features, out_features, bias=False)
+
+    @staticmethod
+    def swish(x: torch.Tensor) -> torch.Tensor:
+        return x * torch.sigmoid(x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.W2(self.swish(self.WG(x)) * self.W1(x))
 
 
 class NumericalEmbeddingLayer(nn.Module):
@@ -68,7 +89,9 @@ class FeatureTokenizer(nn.Module):
         self.numerical_index = index_info['numerical_index']
         self.categorical_index = index_info['categorical_index']
         self.categorical_count = index_info['categorical_count']
-        self.categorical_offset = index_info['categorical_offset']
+
+        categorical_offset = torch.tensor([0] + np.cumsum(self.categorical_count).tolist()[:-1]).long()
+        self.register_buffer('categorical_offset', categorical_offset)
 
         self.num_feat = len(self.numerical_index) + len(self.categorical_index)
         self.num_tokens = self.num_feat + 1 # with [CLS] token
@@ -78,18 +101,15 @@ class FeatureTokenizer(nn.Module):
         numerical_index = [i for i, count in enumerate(category_column_count) if count == -1]
         categorical_index = [i for i, count in enumerate(category_column_count) if count != -1]
         categorical_count = [count for count in category_column_count if count != -1]
-        categorical_offset = torch.tensor([0] + np.cumsum(categorical_count).tolist()[:-1]).long()
         return {
             'numerical_index': numerical_index,
             'categorical_index': categorical_index,
             'categorical_count': categorical_count,
-            'categorical_offset': categorical_offset,
         }
 
     def create_layers(self) -> nn.ModuleDict:
         layers = nn.ModuleDict()
-        if self.numerical_index:
-            layers['numerical'] = NumericalEmbeddingLayer(len(self.numerical_index) + 1, self.d) # add [CLS] token layer
+        layers['numerical'] = NumericalEmbeddingLayer(len(self.numerical_index) + 1, self.d) # add [CLS] token layer
         if self.categorical_index:
             layers['categorical'] = nn.Embedding(sum(self.categorical_count), self.d)
             nn.init.kaiming_uniform_(layers['categorical'].weight, a=5 ** 0.5)
@@ -109,7 +129,7 @@ class FeatureTokenizer(nn.Module):
 
         # Process categorical features
         if self.categorical_index:
-            x_categorical = x_categorical.long() + self.categorical_offset[None]
+            x_categorical = x_categorical.long() + self.categorical_offset # shape: (batch_size, cat_feat)
             x_categorical = self.layers['categorical'](x_categorical) # shape: (batch_size, cat_feat, d)
             x = torch.cat([x, x_categorical], dim=1) # shape: (batch_size, num_feat + cat_feat + 1, d)
 
@@ -158,7 +178,7 @@ class MultiheadAttention(nn.Module):
         k = k.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim)
         v = v.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim)
 
-        attn_scores = torch.matmul(q, k.transpose(-2, -1))  # shape: (batch_size, num_heads, tgt_len, src_len)
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) # shape: (batch_size, num_heads, tgt_len, src_len)
         attn_scores = attn_scores / self.scaling
         attn_weights = F.softmax(attn_scores, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
         attn_weights = self.dropout(attn_weights) 
