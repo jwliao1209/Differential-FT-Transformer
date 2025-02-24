@@ -86,6 +86,18 @@ class Trainer:
             drop_last=False,
         )
 
+        if valid_X is not None and valid_y is not None:
+            valid_X = torch.tensor(valid_X) if not isinstance(valid_X, torch.Tensor) else valid_X
+            valid_y = torch.tensor(valid_y) if not isinstance(valid_y, torch.Tensor) else valid_y
+            valid_loader = DataLoader(
+                TensorDataset(valid_X, valid_y), 
+                batch_size=self.batch_size,
+                shuffle=False,
+                drop_last=False,
+            )
+        else:
+            valid_loader = None
+
         if test_X is not None and test_y is not None:
             test_X = torch.tensor(test_X) if not isinstance(test_X, torch.Tensor) else test_X
             test_y = torch.tensor(test_y) if not isinstance(test_y, torch.Tensor) else test_y
@@ -98,23 +110,39 @@ class Trainer:
         else:
             test_loader = None
 
-        best_score = -float('inf')
-        best_epoch = 0
+        best_valid_epoch = 0
+        best_valid_score = -float('inf')
+        selected_test_score = -float('inf')
 
         self.model.to(self.device)
-        for curr_ep in trange(1, self.n_epoch + 1):
+        for curr_epoch in trange(1, self.n_epoch + 1):
             self.train(train_loader)
+
+            all_results = {'epoch': curr_epoch}
+
+            if valid_loader is not None:
+                results = self.test(valid_loader)
+                valid_results = {f"valid_{metric}": value for metric, value in results.items()}
+
+                if (score := valid_results[f"valid_{self.metric}"]) > best_valid_score:
+                    best_valid_score = score
+                    best_valid_epoch = curr_epoch
+
+                valid_results |= {'best_valid_epoch': best_valid_epoch, 'best_valid_score': best_valid_score}
+                all_results |= valid_results
+
             if test_loader is not None:
-                evaluation_result = self.test(test_loader)
+                results = self.test(test_loader)
+                test_results = {f"test_{metric}": value for metric, value in results.items()}
 
-                if evaluation_result[self.metric] > best_score:
-                    best_score = evaluation_result[self.metric]
-                    best_epoch = curr_ep
-                
-                results = {'epoch': curr_ep} | evaluation_result | {'best_epoch': best_epoch, 'best_score': best_score}
-                tqdm.write(str(results))
+                if curr_epoch == best_valid_epoch:
+                    selected_test_score = test_results[f"test_{self.metric}"]
 
-                if self.logger is not None:
-                    self.logger.log(results)
+                test_results |= {'selected_test_score': selected_test_score}
+                all_results |= test_results
+
+            tqdm.write(str(all_results))
+            if self.logger is not None:
+                self.logger.log(results)
 
         self.model.cpu()

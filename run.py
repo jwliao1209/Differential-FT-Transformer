@@ -12,7 +12,7 @@ def parse_arguments() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
-    parser.add_argument('--model', type=str, default='dftt')
+    parser.add_argument('--model', type=str, default='diffc')
     parser.add_argument('--n_epoch', type=int, default=100)
     parser.add_argument('--batch_size', type=str, default=256)
     parser.add_argument('--target_transform', action='store_true')
@@ -31,6 +31,8 @@ def main() -> None:
     target_transform = args.target_transform if task == 'r' else False
     train_X = data_dict['x_train']
     train_y = data_dict['y_train' if not target_transform else 'y_train_transform']
+    valid_X = data_dict['x_val']
+    valid_y = data_dict['y_val' if not target_transform else 'y_val_transform']
     test_X = data_dict['x_test']
     test_y = data_dict['y_test' if not target_transform else 'y_test_transform']
 
@@ -64,7 +66,8 @@ def main() -> None:
         logger=wandb,
     )
     trainer.fit(
-        train_X, train_y,
+        train_X=train_X, train_y=train_y,
+        valid_X=valid_X, valid_y=valid_y,
         test_X=test_X, test_y=test_y,
     )
 

@@ -255,6 +255,99 @@ class MultiheadDiffAttention(nn.Module):
         attn_weights = F.softmax(attn_scores, dim=-1) # shape: (batch_size, num_heads * 2, tgt_len, src_len)
         attn_weights = attn_weights.view(batch_size, self.num_heads, 2, tgt_len, src_len)
         attn_weights = attn_weights[:, :, 0] - lam * attn_weights[:, :, 1]
+        
+        attn_weights = self.dropout(attn_weights)         
+        attn_output = torch.matmul(attn_weights, v) # shape: (batch_size, num_heads, tgt_len, head_dim)
+
+        if self.use_rms_norm:
+            attn_output = self.norm(
+                attn_output \
+                    .permute(0, 2, 1, 3) \
+                    .contiguous() \
+                    .flatten(2) \
+                    .permute(0, 2, 1) \
+            ).permute(0, 2, 1) \
+            .reshape(batch_size, tgt_len, self.num_heads, -1) \
+            .permute(0, 2, 1, 3) \
+            .contiguous()
+            attn_output *= (1 - self.lambda_init)
+
+        # Reshape back to original dimensions
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, tgt_len, embed_dim) # shape: (batch_size, tgt_len, embed_dim)
+        output = self.out_proj(attn_output)
+        return output
+
+
+class MultiheadDintAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0., depth: int = 1, use_rms_norm: bool = False):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads // 2
+        self.scaling = self.head_dim ** -0.5
+        self.depth = depth
+        self.use_rms_norm = use_rms_norm
+        # assert self.head_dim * num_heads * 2 == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.q_proj = self.create_linear(embed_dim, embed_dim*2) # query
+        self.k_proj = self.create_linear(embed_dim, embed_dim*2) # key
+        self.v_proj = self.create_linear(embed_dim, embed_dim) # value
+        self.out_proj = self.create_linear(embed_dim, embed_dim) # output
+        self.dropout = nn.Dropout(dropout)
+
+        self.lambda_init = self.lambda_init_fn(depth)
+        self.lambda_q1 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0, std=0.1))
+        self.lambda_k1 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0, std=0.1))
+        self.lambda_q2 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0, std=0.1))
+        self.lambda_k2 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0, std=0.1))
+        #self.norm = nn.RMSNorm(self.head_dim * 2, eps=1e-5, elementwise_affine=True)
+        self.norm = nn.GroupNorm(num_heads, embed_dim)
+
+    @staticmethod
+    def create_linear(in_features: int, out_features: int) -> nn.Linear:
+        linear = nn.Linear(in_features, out_features)
+        nn.init.xavier_uniform_(linear.weight, gain=1 / 2 ** 0.5)
+        return linear
+
+    @staticmethod
+    def lambda_init_fn(depth: int) -> torch.Tensor:
+        return 0.8 - 0.6 * torch.exp(torch.tensor(-0.3 * depth))
+
+    def compute_lambda(self) -> torch.Tensor:
+        lambda_1 = torch.exp(torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1).float())
+        lambda_2 = torch.exp(torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1).float())
+        return lambda_1 - lambda_2 + self.lambda_init
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
+        """
+        query: Tensor of shape (batch_size, tgt_len, embed_dim)
+        key: Tensor of shape (batch_size, src_len, embed_dim)
+        value: Tensor of shape (batch_size, src_len, embed_dim)
+        attn_mask: Optional[Tensor] of shape (tgt_len, src_len) or (batch_size, tgt_len, src_len)
+        """
+        batch_size, tgt_len, embed_dim = query.size()
+        src_len = key.size(1)
+
+        q = self.q_proj(query)  # shape: (batch_size, tgt_len, embed_dim)
+        k = self.k_proj(key)    # shape: (batch_size, src_len, embed_dim)
+        v = self.v_proj(value)  # shape: (batch_size, src_len, embed_dim)
+
+        # Reshape into multihead format
+        q = q.view(batch_size, tgt_len, self.num_heads * 2, self.head_dim * 2).transpose(1, 2) # shape: (batch_size, num_heads * 2, tgt_len, head_dim)
+        k = k.view(batch_size, src_len, self.num_heads * 2, self.head_dim * 2).transpose(1, 2) # shape: (batch_size, num_heads * 2, src_len, head_dim)
+        v = v.view(batch_size, src_len, self.num_heads, self.head_dim * 2).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim * 2)
+
+        lam = self.compute_lambda()
+        attn_scores = torch.matmul(q, k.transpose(-2, -1))  # shape: (batch_size, num_heads * 2, tgt_len, src_len)
+        attn_scores = attn_scores / self.scaling
+        attn_weights = F.softmax(attn_scores, dim=-1) # shape: (batch_size, num_heads * 2, tgt_len, src_len)
+        attn_weights = attn_weights.view(batch_size, self.num_heads, 2, tgt_len, src_len)
+
+        a1 = attn_weights[:, :, 0]
+        a2 = attn_weights[:, :, 1]
+        a3 = attn_weights[:, :, 0].mean(dim=2)[:, :, None].repeat(1, 1, attn_weights.size(3), 1)
+
+        attn_weights = lam * a3 + a1 - lam * a2
         attn_weights = self.dropout(attn_weights)         
         attn_output = torch.matmul(attn_weights, v) # shape: (batch_size, num_heads, tgt_len, head_dim)
 

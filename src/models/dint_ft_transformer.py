@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from torch import nn
 
 from .base import BaseClassifier, BaseRegressor
-from .layers import ReGLU, ResidualLayer, FeatureTokenizer, MultiheadAttention
+from .layers import ReGLU, ResidualLayer, FeatureTokenizer, MultiheadDintAttention
 
 
-class FTTransformer(nn.Module):
+class DintFTTransformer(nn.Module):
     def __init__(
         self,
         n_class,
@@ -36,10 +36,10 @@ class FTTransformer(nn.Module):
 
         d_hidden = int(d_token * d_ffn_factor)
         self.layers = nn.ModuleList([])
-        for _ in range(n_layer):
+        for l in range(n_layer):
             layer = nn.ModuleDict(
                 {
-                    'attention': MultiheadAttention(d_token, n_head, attention_dropout_rate),
+                    'attention': MultiheadDintAttention(d_token, n_head, attention_dropout_rate, l),
                     'linear0': nn.Linear(d_token, d_hidden * 2),
                     'linear1': nn.Linear(d_hidden, d_token),
                     'res0': ResidualLayer(d_token, residual_dropout_rate),
@@ -91,7 +91,7 @@ class FTTransformer(nn.Module):
         return self.forward(x)['pred']
 
 
-class FTTransformerClassifier(BaseClassifier, FTTransformer):
+class DintFTTransformerClassifier(BaseClassifier, DintFTTransformer):
     def __init__(
         self,
         n_class,
@@ -120,7 +120,7 @@ class FTTransformerClassifier(BaseClassifier, FTTransformer):
         )
 
 
-class FTTransformerRegressor(BaseRegressor, FTTransformer):
+class DintFTTransformerRegressor(BaseRegressor, DintFTTransformer):
     def __init__(
         self,
         category_column_count: List[int],

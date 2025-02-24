@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from .base import BaseClassifier, BaseRegressor
 from .layers import ReGLU, ResidualLayer, FeatureTokenizer, MultiheadDiffAttention
 
 
@@ -90,7 +91,7 @@ class DiffFTTransformer(nn.Module):
         return self.forward(x)['pred']
 
 
-class DiffFTTransformerClassifier(DiffFTTransformer):
+class DiffFTTransformerClassifier(BaseClassifier, DiffFTTransformer):
     def __init__(
         self,
         n_class,
@@ -117,16 +118,9 @@ class DiffFTTransformerClassifier(DiffFTTransformer):
             residual_dropout_rate=residual_dropout_rate,
             use_bias=use_bias,
         )
-    
-    def compute_loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        y = y.long() if y.dtype != torch.long else y
-        return torch.nn.functional.cross_entropy(y_hat, y)
-    
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        return super().predict(x).argmax(dim=1)
 
 
-class DiffFTTransformerRegressor(DiffFTTransformer):
+class DiffFTTransformerRegressor(BaseRegressor, DiffFTTransformer):
     def __init__(
         self,
         category_column_count: List[int],
@@ -152,8 +146,3 @@ class DiffFTTransformerRegressor(DiffFTTransformer):
             residual_dropout_rate=residual_dropout_rate,
             use_bias=use_bias,
         )
-
-    def compute_loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        y = y.float() if y.dtype != torch.float else y
-        y = y.unsqueeze() if y_hat.ndim == 1 else y_hat
-        return torch.nn.functional.mse_loss(y_hat, y)
