@@ -8,7 +8,7 @@ from .base import BaseClassifier, BaseRegressor
 from .layers import ReGLU, ResidualLayer, FeatureTokenizer, MultiheadDintAttention
 
 
-class DintFTTransformer(nn.Module):
+class DINTFTTransformer(nn.Module):
     def __init__(
         self,
         n_class,
@@ -91,7 +91,7 @@ class DintFTTransformer(nn.Module):
         return self.forward(x)['pred']
 
 
-class DintFTTransformerClassifier(BaseClassifier, DintFTTransformer):
+class DINTFTTransformerClassifier(BaseClassifier, DINTFTTransformer):
     def __init__(
         self,
         n_class,
@@ -120,7 +120,7 @@ class DintFTTransformerClassifier(BaseClassifier, DintFTTransformer):
         )
 
 
-class DintFTTransformerRegressor(BaseRegressor, DintFTTransformer):
+class DINTFTTransformerRegressor(BaseRegressor, DINTFTTransformer):
     def __init__(
         self,
         category_column_count: List[int],
