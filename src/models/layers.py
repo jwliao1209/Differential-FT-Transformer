@@ -289,8 +289,8 @@ class MultiheadDintAttention(nn.Module):
         self.use_rms_norm = use_rms_norm
         # assert self.head_dim * num_heads * 2 == embed_dim, "embed_dim must be divisible by num_heads"
 
-        self.q_proj = self.create_linear(embed_dim, embed_dim*2) # query
-        self.k_proj = self.create_linear(embed_dim, embed_dim*2) # key
+        self.q_proj = self.create_linear(embed_dim, embed_dim * 2) # query
+        self.k_proj = self.create_linear(embed_dim, embed_dim * 2) # key
         self.v_proj = self.create_linear(embed_dim, embed_dim) # value
         self.out_proj = self.create_linear(embed_dim, embed_dim) # output
         self.dropout = nn.Dropout(dropout)

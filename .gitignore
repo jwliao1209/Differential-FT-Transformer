@@ -171,3 +171,8 @@ cython_debug/
 .pypirc
 
 wandb/
+
+# data
+data/
+ft_transformer_benchmark/
+revisiting_models_data.tar.gz
