@@ -345,7 +345,7 @@ class MultiheadDintAttention(nn.Module):
 
         a1 = attn_weights[:, :, 0]
         a2 = attn_weights[:, :, 1]
-        a3 = attn_weights[:, :, 0].mean(dim=2)[:, :, None].repeat(1, 1, attn_weights.size(3), 1)
+        a3 = attn_weights[:, :, 0].mean(dim=2)[:, :, None]#.repeat(1, 1, attn_weights.size(3), 1)
 
         attn_weights = lam * a3 + a1 - lam * a2
         attn_weights = self.dropout(attn_weights)         

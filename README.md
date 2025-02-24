@@ -38,6 +38,13 @@ If you use this code, please cite the following:
     year   = {2025}
 }
 
+@article{cang2025dint,
+  title   = {DINT Transformer},
+  author  = {Yueyang Cang, Yuhang Liu, Xiaoteng Zhang, Erlu Zhao, Li Shi},
+  journal = {arXiv preprint arXiv:2501.17486},
+  year    = {2025}
+}
+
 @inproceedings{ye2025differential,
     title   = {Differential transformer},
     author  = {Tianzhu Ye, Li Dong, Yuqing Xia, Yutao Sun, Yi Zhu, Gao Huang, Furu Wei},
