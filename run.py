@@ -12,7 +12,7 @@ def parse_arguments() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
-    parser.add_argument('--model', type=str, default='diffc')
+    parser.add_argument('--model', type=str, default='diff')
     parser.add_argument('--n_epoch', type=int, default=100)
     parser.add_argument('--batch_size', type=str, default=256)
     parser.add_argument('--target_transform', action='store_true')
@@ -36,6 +36,13 @@ def main() -> None:
     test_X = data_dict['x_test']
     test_y = data_dict['y_test' if not target_transform else 'y_test_transform']
 
+    data_args = {
+        'n_feature': train_X.shape[1],
+        'n_train': train_X.shape[0],
+        'n_valid': valid_X.shape[0],
+        'n_test': test_X.shape[0],
+    }
+
     model_params = {
         'category_column_count': data_dict['col_cat_count'],
     }
@@ -51,10 +58,10 @@ def main() -> None:
     else:
         import wandb
         wandb.init(
-            project='DiffFTTransformer',
+            project='DINTFTTransformer',
             group=str(args.data_id),
             name=f"{args.model}_{datetime.today().strftime('%m%d_%H:%M:%S')}",
-            config=vars(args),
+            config=vars(args) | data_args,
         )
 
     trainer = Trainer(

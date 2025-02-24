@@ -143,6 +143,6 @@ class Trainer:
 
             tqdm.write(str(all_results))
             if self.logger is not None:
-                self.logger.log(results)
+                self.logger.log(all_results)
 
         self.model.cpu()

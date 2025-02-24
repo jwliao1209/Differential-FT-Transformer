@@ -14,5 +14,5 @@ class BaseClassifier(nn.Module):
 class BaseRegressor(nn.Module):
      def compute_loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         y = y.float() if y.dtype != torch.float else y
-        y = y.unsqueeze() if y_hat.ndim == 1 else y_hat
+        y = y.unsqueeze(1) if y.ndim == 1 else y
         return torch.nn.functional.mse_loss(y_hat, y)
