@@ -3,6 +3,7 @@ from typing import Union
 from .ft_transformer import FTTransformer, FTTransformerClassifier, FTTransformerRegressor
 from .diff_ft_transformer import DiffFTTransformer, DiffFTTransformerClassifier, DiffFTTransformerRegressor
 from .dint_ft_transformer import DINTFTTransformer, DINTFTTransformerClassifier, DINTFTTransformerRegressor
+from .dofen import DOFENClassifier, DOFENRegressor
 
 
 def get_model(model_name: str) -> Union[FTTransformer, DiffFTTransformer, DINTFTTransformer]:
@@ -19,3 +20,7 @@ def get_model(model_name: str) -> Union[FTTransformer, DiffFTTransformer, DINTFT
             return DINTFTTransformerClassifier
         case 'dintr':
             return DINTFTTransformerRegressor
+        case 'dofenc':
+            return DOFENClassifier
+        case 'dofenr':
+            return DOFENRegressor
