@@ -313,7 +313,7 @@ class DOFENClassifier(BaseClassifier, DOFEN):
         n_class: int,
         m: int = 16,
         d: int = 4,
-        n_head: int = 2,
+        n_head: int = 4,
         n_forest: int = 100,
         n_hidden: int = 128,
         dropout: float = 0.0,
@@ -345,10 +345,9 @@ class DOFENRegressor(BaseRegressor, DOFEN):
     def __init__(
         self,
         category_column_count: List[int],
-        n_class: int,
         m: int = 16,
         d: int = 4,
-        n_head: int = 1,
+        n_head: int = 4,
         n_forest: int = 100,
         n_hidden: int = 128,
         dropout: float = 0.0,
@@ -361,7 +360,7 @@ class DOFENRegressor(BaseRegressor, DOFEN):
 
         super().__init__(
             category_column_count=category_column_count,
-            n_class=n_class,
+            n_class=-1,
             m=m,
             d=d,
             n_head=n_head,
