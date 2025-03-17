@@ -51,14 +51,14 @@ def main() -> None:
 
     model = get_model(args.model + task)(**model_params)
     eval_funs = cls_eval_funs if task == 'c' else reg_eval_funs
-    metrics = 'accuracy' if task == 'c' else 'r2'
+    metrics = 'accuracy' if task == 'c' else 'rmse'
 
     if args.debug:
         wandb = None
     else:
         import wandb
         wandb.init(
-            project='DINTFTTransformer',
+            project='DINTFTTransformer-FTBench-new',
             group=str(args.data_id),
             name=f"{args.model}_{datetime.today().strftime('%m%d_%H:%M:%S')}",
             config=vars(args) | data_args,
