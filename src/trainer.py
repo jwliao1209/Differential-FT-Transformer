@@ -111,8 +111,8 @@ class Trainer:
             test_loader = None
 
         best_valid_epoch = 0
-        best_valid_score = -float('inf')
-        selected_test_score = -float('inf')
+        best_valid_score = float('inf') if self.metric == 'rmse' else -float('inf')
+        selected_test_score = float('inf') if self.metric == 'rmse' else -float('inf')
 
         self.model.to(self.device)
         for curr_epoch in trange(1, self.n_epoch + 1):
@@ -124,9 +124,15 @@ class Trainer:
                 results = self.test(valid_loader)
                 valid_results = {f"valid_{metric}": value for metric, value in results.items()}
 
-                if (score := valid_results[f"valid_{self.metric}"]) > best_valid_score:
-                    best_valid_score = score
-                    best_valid_epoch = curr_epoch
+                score = valid_results[f"valid_{self.metric}"]
+                if self.metric == 'rmse':
+                    if score < best_valid_score:
+                        best_valid_score = score
+                        best_valid_epoch = curr_epoch
+                else:
+                    if score > best_valid_score:
+                        best_valid_score = score
+                        best_valid_epoch = curr_epoch
 
                 valid_results |= {'best_valid_epoch': best_valid_epoch, 'best_valid_score': best_valid_score}
                 all_results |= valid_results
