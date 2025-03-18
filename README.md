@@ -46,17 +46,24 @@ If you use this code, please cite the following:
 }
 
 @article{cang2025dint,
-  title   = {DINT Transformer},
-  author  = {Yueyang Cang, Yuhang Liu, Xiaoteng Zhang, Erlu Zhao, Li Shi},
-  journal = {arXiv preprint arXiv:2501.17486},
-  year    = {2025}
+    title   = {DINT Transformer},
+    author  = {Yueyang Cang, Yuhang Liu, Xiaoteng Zhang, Erlu Zhao, Li Shi},
+    journal = {arXiv preprint arXiv:2501.17486},
+    year    = {2025}
+}
+
+@article{zhu2025transformers,
+    title   = {Transformers without Normalization},
+    author  = {Jiachen Zhu, Xinlei Chen, Kaiming He, Yann LeCun, and Zhuang Liu},
+    journal = {arXiv preprint arXiv:2503.10622},
+    year    = {2025}
 }
 
 @inproceedings{ye2025differential,
-    title   = {Differential transformer},
-    author  = {Tianzhu Ye, Li Dong, Yuqing Xia, Yutao Sun, Yi Zhu, Gao Huang, Furu Wei},
+    title     = {Differential transformer},
+    author    = {Tianzhu Ye, Li Dong, Yuqing Xia, Yutao Sun, Yi Zhu, Gao Huang, Furu Wei},
     booktitle = {International Conference on Learning Representations (ICLR)},
-    year    = {2025}
+    year      = {2025}
 }
 
 @inproceedings{gorishniy2021revisiting,
