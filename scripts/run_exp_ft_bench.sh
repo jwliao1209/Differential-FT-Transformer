@@ -1,11 +1,11 @@
 #!/bin/bash
 
 data_ids=(
-    # adult
+    adult
     aloi
     california_housing
     covtype
-    epsilon
+    # epsilon
     helena
     higgs_small
     jannis
@@ -15,19 +15,19 @@ data_ids=(
 )
 
 models=(
-    dofen
+    # dofen
     ft
-    diff
-    dint
+    # diff
+    # dint
 )
 
-for data_id in ${data_ids[@]}; do
-    for model in ${models[@]}; do
+for model in ${models[@]}; do
+    for data_id in ${data_ids[@]}; do
         python run.py \
             --data_dir ft_transformer_benchmark \
             --data_id $data_id \
             --model $model \
-            --n_epoch 300 \
+            --n_epoch 500 \
             --target_transform
     done
 done

@@ -26,7 +26,9 @@ class FastGroupConv1d(nn.Conv1d):
                     self.groups, self.out_channels // self.groups, self.in_channels // self.groups, 1
                 ).permute(3, 0, 2, 1)
             )
-            self.bias = nn.Parameter(self.bias.unsqueeze(0).unsqueeze(-1))
+            self.bias = nn.Parameter(
+                self.bias.unsqueeze(0).unsqueeze(-1)
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.groups > self.fast_mode:
@@ -43,8 +45,7 @@ class ConditionGeneration(nn.Module):
         n_cond: int = 128,
         categorical_optimized: bool = False,
         fast_mode: int = 64,
-    ) -> None:
-
+    ):
         super(ConditionGeneration, self).__init__()
         self.fast_mode = fast_mode
         self.categorical_optimized = categorical_optimized
@@ -77,32 +78,19 @@ class ConditionGeneration(nn.Module):
                 # input = (b, n_num_col)
                 # output = (b, n_num_col, n_cond)
                 Reshape(-1, len(self.numerical_index), 1),
-                FastGroupConv1d(
-                    len(self.numerical_index),
-                    len(self.numerical_index) * self.n_cond,
-                    kernel_size=1,
-                    groups=len(self.numerical_index),
-                    fast_mode=self.fast_mode,
-                ),
+                FastGroupConv1d(len(self.numerical_index), len(self.numerical_index)*self.n_cond, kernel_size=1, groups=len(self.numerical_index), fast_mode=self.fast_mode),
                 nn.Sigmoid(),
-                Reshape(-1, len(self.numerical_index), self.n_cond),
+                Reshape(-1, len(self.numerical_index), self.n_cond)
             )
-
         if len(self.categorical_index):
             phi_1['cat'] = nn.ModuleDict()
-            phi_1['cat']['embedder'] = nn.Embedding(sum(self.categorical_count), self.n_cond)          
+            phi_1['cat']['embedder'] = nn.Embedding(sum(self.categorical_count), self.n_cond)            
             phi_1['cat']['mapper'] = nn.Sequential(
                 # input = (b, n_cat_col, n_cond)
                 # output = (b, n_cat_col, n_cond)
                 Reshape(-1, len(self.categorical_index) * self.n_cond, 1),
                 nn.GroupNorm(len(self.categorical_index), len(self.categorical_index) * self.n_cond),
-                FastGroupConv1d(
-                    len(self.categorical_index) * self.n_cond,
-                    len(self.categorical_index) * self.n_cond,
-                    kernel_size=1,
-                    groups=len(self.categorical_index) * self.n_cond if self.categorical_optimized else len(self.categorical_index),
-                    fast_mode=self.fast_mode,
-                ),                
+                FastGroupConv1d(len(self.categorical_index) * self.n_cond, len(self.categorical_index)*self.n_cond, kernel_size=1, groups=len(self.categorical_index)*self.n_cond if self.categorical_optimized else len(self.categorical_index), fast_mode=self.fast_mode),                
                 nn.Sigmoid(),
                 Reshape(-1, len(self.categorical_index), self.n_cond)
             )
@@ -117,7 +105,7 @@ class ConditionGeneration(nn.Module):
             M.append(num_sample_emb)
 
         if len(self.categorical_index):
-            cat_x = x[:, self.categorical_index].long() + self.categorical_offset
+            cat_x = x[:, self.categorical_index].long() + self.cat_offset
             cat_sample_emb = self.phi_1['cat']['mapper'](self.phi_1['cat']['embedder'](cat_x))
             M.append(cat_sample_emb)
 
@@ -147,7 +135,7 @@ class rODTForestConstruction(nn.Module):
         n_forest: int = 100,
         dropout: float = 0.0,
         fast_mode: int = 64,
-        device = torch.device('cuda'),
+        device = torch.device('cuda')
     ) -> None:
 
         super().__init__()
@@ -201,7 +189,7 @@ class rODTForestBagging(nn.Module):
             nn.ReLU(),
             nn.LayerNorm(n_hidden),
             nn.Dropout(dropout),
-            nn.Linear(n_hidden, n_class),
+            nn.Linear(n_hidden, n_class)
         )
 
     def forward(self, F: torch.Tensor) -> torch.Tensor:
@@ -212,17 +200,17 @@ class DOFEN(nn.Module):
     def __init__(
         self,
         category_column_count: List[int],
-        n_class: int,
-        m: int = 16,
-        d: int = 4,
+        n_class: int, 
+        m: int = 16, 
+        d: int = 4, 
         n_head: int = 1,
         n_forest: int = 100,
         n_hidden: int = 128,
-        dropout: float = 0.0,
+        dropout: float = 0.0, 
         categorical_optimized: bool = False,
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
-        device = torch.device('cuda'),
+        device=torch.device('cuda'),
         verbose: bool = False,
     ):
         super().__init__()
@@ -245,31 +233,31 @@ class DOFEN(nn.Module):
         self.n_estimator = max(2, int(self.n_col ** 0.5)) * self.n_cond // self.d
 
         self.condition_generation = ConditionGeneration(            
-            category_column_count,
-            n_cond=self.n_cond,
-            categorical_optimized=categorical_optimized,
+            category_column_count, 
+            n_cond=self.n_cond, 
+            categorical_optimized=categorical_optimized, 
             fast_mode=fast_mode,
         )
         self.rodt_construction = rODTConstruction(
-            self.n_cond,
-            self.n_col,
+            self.n_cond, 
+            self.n_col
         )
         self.rodt_forest_construction = rODTForestConstruction(
-            self.n_col,
-            self.n_rodt,
+            self.n_col, 
+            self.n_rodt, 
             self.n_cond,
             self.n_estimator,
-            n_head=self.n_head,
+            n_head=self.n_head, 
             n_hidden=self.n_hidden,
             n_forest=self.n_forest,
             dropout=self.dropout,
             fast_mode=fast_mode,
-            device=self.device,
+            device=self.device
         )
         self.rodt_forest_bagging = rODTForestBagging(
             self.n_hidden,
             self.dropout,
-            self.n_class,
+            self.n_class
         )
 
         if verbose:
@@ -310,29 +298,29 @@ class DOFENClassifier(BaseClassifier, DOFEN):
     def __init__(
         self,
         category_column_count: List[int],
-        n_class: int,
-        m: int = 16,
-        d: int = 4,
-        n_head: int = 1,
+        n_class: int, 
+        m: int = 16, 
+        d: int = 4, 
+        n_head: int = 2,
         n_forest: int = 100,
         n_hidden: int = 128,
-        dropout: float = 0.0,
+        dropout: float = 0.0, 
         categorical_optimized: bool = False,
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
-        device = torch.device('cuda'),
+        device=torch.device('cuda'),
         verbose: bool = False,
     ) -> None:
 
         super().__init__(
-            category_column_count=category_column_count,
-            n_class=n_class,
-            m=m,
-            d=d,
+            category_column_count=category_column_count, 
+            n_class=n_class, 
+            m=m, 
+            d=d, 
             n_head=n_head,
             n_forest=n_forest,
             n_hidden=n_hidden,
-            dropout=dropout,
+            dropout=dropout, 
             categorical_optimized=categorical_optimized,
             fast_mode=fast_mode,
             use_bagging_loss=use_bagging_loss,
@@ -345,12 +333,12 @@ class DOFENRegressor(BaseRegressor, DOFEN):
     def __init__(
         self,
         category_column_count: List[int],
-        m: int = 16,
-        d: int = 4,
+        m: int = 16, 
+        d: int = 4, 
         n_head: int = 1,
         n_forest: int = 100,
         n_hidden: int = 128,
-        dropout: float = 0.0,
+        dropout: float = 0.0, 
         categorical_optimized: bool = False,
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
@@ -360,13 +348,13 @@ class DOFENRegressor(BaseRegressor, DOFEN):
 
         super().__init__(
             category_column_count=category_column_count,
-            n_class=-1,
+            n_class=1,
             m=m,
             d=d,
             n_head=n_head,
             n_forest=n_forest,
             n_hidden=n_hidden,
-            dropout=dropout, 
+            dropout=dropout,
             categorical_optimized=categorical_optimized,
             fast_mode=fast_mode,
             use_bagging_loss=use_bagging_loss,

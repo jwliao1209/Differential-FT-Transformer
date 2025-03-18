@@ -174,5 +174,5 @@ wandb/
 
 # data
 data/
-ft_transformer_benchmark/
+ft_transformer_benchmark*/
 revisiting_models_data.tar.gz
