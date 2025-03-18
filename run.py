@@ -10,9 +10,11 @@ from src.utils import load_pkl_data, set_random_seed
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
+    parser.add_argument('--project_name', type=str, default='DOFEN')
     parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
     parser.add_argument('--model', type=str, default='diff')
+    parser.add_argument('--norm', type=str, default='layer_norm')
     parser.add_argument('--n_epoch', type=int, default=100)
     parser.add_argument('--batch_size', type=str, default=256)
     parser.add_argument('--target_transform', action='store_true')
@@ -53,12 +55,23 @@ def main() -> None:
     eval_funs = cls_eval_funs if task == 'c' else reg_eval_funs
     metrics = 'accuracy' if task == 'c' else 'rmse'
 
+    if args.norm == 'layer_norm':
+        pass
+    elif args.norm == 'dyt':
+        from src.models.dyt import convert_ln_to_dyt
+        model = convert_ln_to_dyt(model)
+    elif args.norm == 'dyas':
+        from src.models.dyt import convert_ln_to_dyas
+        model = convert_ln_to_dyas(model)
+    else:
+        raise ValueError(f"Invalid norm: {args.norm}")
+
     if args.debug:
         wandb = None
     else:
         import wandb
         wandb.init(
-            project='DINTFTTransformer-FTBench-new',
+            project=args.project_name,
             group=str(args.data_id),
             name=f"{args.model}_{datetime.today().strftime('%m%d_%H:%M:%S')}",
             config=vars(args) | data_args,
