@@ -27,33 +27,25 @@ models=(
     # dint
 )
 
+norms=(
+    # layer_norm
+    # dyt
+    # dyas
+    dyat
+    fdyat
+)
+
 for data_id in ${data_ids[@]}; do
     for model in ${models[@]}; do
-        python run.py \
-            --project_name DOFEN_norm \
-            --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
-            --data_id $data_id \
-            --model $model \
-            --norm layer_norm \
-            --n_epoch 300 \
-            --target_transform
-        
-        python run.py \
-            --project_name DOFEN_norm \
-            --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
-            --data_id $data_id \
-            --model $model \
-            --norm dyt \
-            --n_epoch 300 \
-            --target_transform
-        
-        python run.py \
-            --project_name DOFEN_norm \
-            --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
-            --data_id $data_id \
-            --model $model \
-            --norm dyas \
-            --n_epoch 300 \
-            --target_transform
+        for norm in ${norms[@]}; do
+            python run.py \
+                --project_name DOFEN_norm \
+                --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
+                --data_id $data_id \
+                --model $model \
+                --norm $norm \
+                --n_epoch 300 \
+                --target_transform
+        done
     done
 done
