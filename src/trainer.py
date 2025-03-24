@@ -117,7 +117,8 @@ class Trainer:
         selected_test_score = float('inf') if self.metric == 'rmse' else -float('inf')
 
         self.model.to(self.device)
-        for curr_epoch in trange(1, self.n_epoch + 1):
+        pbar = trange(1, self.n_epoch + 1)
+        for curr_epoch in pbar:
             self.train(train_loader)
 
             all_results = {'epoch': curr_epoch}
@@ -148,6 +149,8 @@ class Trainer:
 
                 test_results |= {'selected_test_score': selected_test_score}
                 all_results |= test_results
+            
+            pbar.set_postfix({'selected_test_score': selected_test_score})
 
             if self.verbose:
                 tqdm.write(str(all_results))
