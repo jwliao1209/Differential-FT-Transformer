@@ -60,11 +60,22 @@ def main() -> None:
     elif args.norm == 'dyt':
         from src.models.dyt import convert_ln_to_dyt
         model = convert_ln_to_dyt(model)
+    elif args.norm == 'dyat':
+        from src.models.dyt import convert_ln_to_dyat
+        model = convert_ln_to_dyat(model)
+    elif args.norm == 'fdyat':
+        from src.models.dyt import convert_ln_to_fdyat
+        model = convert_ln_to_fdyat(model)
+    elif args.norm == 'dys':
+        from src.models.dyt import convert_ln_to_dys
+        model = convert_ln_to_dys(model)
     elif args.norm == 'dyas':
         from src.models.dyt import convert_ln_to_dyas
         model = convert_ln_to_dyas(model)
     else:
         raise ValueError(f"Invalid norm: {args.norm}")
+    
+    import pdb; pdb.set_trace()
 
     if args.debug:
         wandb = None
