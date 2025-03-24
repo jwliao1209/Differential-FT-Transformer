@@ -74,8 +74,6 @@ def main() -> None:
         model = convert_ln_to_dyas(model)
     else:
         raise ValueError(f"Invalid norm: {args.norm}")
-    
-    import pdb; pdb.set_trace()
 
     if args.debug:
         wandb = None
