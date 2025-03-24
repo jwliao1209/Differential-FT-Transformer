@@ -19,6 +19,7 @@ class Trainer:
         metric: str = 'accuracy',
         logger: Optional[object] = None,
         device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+        verbose: bool = True,
     ) -> None:
 
         self.model = model
@@ -29,6 +30,7 @@ class Trainer:
         self.eval_funs = eval_funs
         self.metric = metric
         self.logger = logger
+        self.verbose = verbose
         self.device = torch.device(device)
         self.set_optimization()
 
@@ -147,7 +149,9 @@ class Trainer:
                 test_results |= {'selected_test_score': selected_test_score}
                 all_results |= test_results
 
-            tqdm.write(str(all_results))
+            if self.verbose:
+                tqdm.write(str(all_results))
+
             if self.logger is not None:
                 self.logger.log(all_results)
 
