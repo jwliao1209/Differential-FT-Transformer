@@ -13,7 +13,7 @@ class Trainer:
         model: nn.Module,
         batch_size: int,
         n_epoch: int,
-        lr: float = 1e-4,
+        lr: float = 1e-3,
         weight_decay: float = 1e-5,
         eval_funs: Optional[Dict[str, callable]] = None,
         metric: str = 'accuracy',
@@ -35,10 +35,20 @@ class Trainer:
         self.set_optimization()
 
     def set_optimization(self) -> None:
+        attn_params = []
+        other_params = []
+
+        for name, param in self.model.named_parameters():
+            if "attn" in name:
+                attn_params.append(param)
+            else:
+                other_params.append(param)
+
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=self.lr,
-            weight_decay=self.weight_decay,
+            [
+                {'params': attn_params, 'lr': 1e-4, 'weight_decay': self.weight_decay},
+                {'params': other_params, 'lr': self.lr, 'weight_decay': self.weight_decay},
+            ]
         )
 
     def train(self, train_loader: DataLoader) -> None:
