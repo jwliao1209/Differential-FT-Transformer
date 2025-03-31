@@ -1,0 +1,12 @@
+name: dint
+model:
+  d_token: 192
+  d_ffn_factor: 1.3333  # 4 / 3
+  n_layer: 3
+  n_head: 8
+  attention_dropout_rate: 0.2
+  ffn_dropout_rate: 0.1
+  residual_dropout_rate: .0
+  use_bias: true
+trainer:
+  lr: 1e-4

@@ -1,6 +1,7 @@
 numpy==2.2.2
 pytest==8.3.4
 scikit-learn==1.6.1
+omegaconf==2.3.0
 torch==2.6.0
 tqdm==4.67.1
 wandb==0.19.6

@@ -1,6 +1,7 @@
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from datetime import datetime
+from omegaconf import OmegaConf
 
 from src.models import get_model
 from src.metric import cls_eval_funs, reg_eval_funs
@@ -24,6 +25,7 @@ def parse_arguments() -> Namespace:
 
 def main() -> None:
     args = parse_arguments()
+    config = OmegaConf.load(Path('configs', f'{args.model}.yaml'))
     set_random_seed()
 
     data_dict = load_pkl_data(Path(args.data_dir, args.data_id, '0.pkl'))
@@ -46,6 +48,7 @@ def main() -> None:
     }
 
     model_params = {
+        **config.model,
         'category_column_count': data_dict['col_cat_count'],
     }
     if n_class != -1:
@@ -90,6 +93,7 @@ def main() -> None:
         model,
         batch_size=args.batch_size,
         n_epoch=args.n_epoch,
+        lr=config.trainer.lr,
         eval_funs=eval_funs,
         metric=metrics,
         logger=wandb,
