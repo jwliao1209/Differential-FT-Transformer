@@ -33,7 +33,6 @@ for data_id in ${data_ids[@]}; do
             --data_id $data_id \
             --model $model \
             --n_epoch 500 \
-            --target_transform \
-            --debug
+            --target_transform
     done
 done
