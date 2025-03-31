@@ -2,40 +2,11 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from .base import BaseClassifier, BaseRegressor
-
-
-class Reshape(nn.Module):
-    def __init__(self, *args: int) -> None:
-        super(Reshape, self).__init__()
-        self.shape = args
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x.reshape(self.shape)
-
-
-class FastGroupConv1d(nn.Conv1d):
-    def __init__(self, *args, **kwargs):
-        self.fast_mode = kwargs.pop('fast_mode')
-        nn.Conv1d.__init__(self, *args, **kwargs)
-        if self.groups > self.fast_mode:
-            self.weight = nn.Parameter(
-                self.weight.reshape(
-                    self.groups, self.out_channels // self.groups, self.in_channels // self.groups, 1
-                ).permute(3, 0, 2, 1)
-            )
-            self.bias = nn.Parameter(
-                self.bias.unsqueeze(0).unsqueeze(-1)
-            )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.groups > self.fast_mode:
-            x = x.reshape(-1, self.groups, self.in_channels // self.groups, 1)
-            return (x * self.weight).sum(2, keepdims=True).permute(0, 1, 3, 2).reshape(-1, self.out_channels, 1) + self.bias
-        else:
-            return self._conv_forward(x, self.weight, self.bias)
+from .dofen import Reshape, FastGroupConv1d
 
 
 class ConditionGeneration(nn.Module):
@@ -43,6 +14,7 @@ class ConditionGeneration(nn.Module):
         self,
         category_column_count: List[int],
         n_cond: int = 128,
+        n_hidden: int = 4,
         categorical_optimized: bool = False,
         fast_mode: int = 64,
     ):
@@ -59,6 +31,7 @@ class ConditionGeneration(nn.Module):
         self.register_buffer('categorical_offset', categorical_offset)
 
         self.n_cond = n_cond
+        self.n_hidden = n_hidden
         self.phi_1 = self.get_phi_1()
 
     def extract_feature_metadata(self, category_column_count: List[int]) -> Dict[str, List[int]]:
@@ -78,21 +51,32 @@ class ConditionGeneration(nn.Module):
                 # input = (b, n_num_col)
                 # output = (b, n_num_col, n_cond)
                 Reshape(-1, len(self.numerical_index), 1),
-                FastGroupConv1d(len(self.numerical_index), len(self.numerical_index)*self.n_cond, kernel_size=1, groups=len(self.numerical_index), fast_mode=self.fast_mode),
-                nn.Sigmoid(),
-                Reshape(-1, len(self.numerical_index), self.n_cond)
+                FastGroupConv1d(
+                    len(self.numerical_index),
+                    len(self.numerical_index) * self.n_cond * self.n_hidden,
+                    kernel_size=1,
+                    groups=len(self.numerical_index),
+                    fast_mode=self.fast_mode
+                ), # (b, n_num_col, 1) -> (b, n_num_col * n_cond, 1)
+                # nn.Sigmoid(),
+                Reshape(-1, len(self.numerical_index), self.n_cond, self.n_hidden)
             )
         if len(self.categorical_index):
             phi_1['cat'] = nn.ModuleDict()
-            phi_1['cat']['embedder'] = nn.Embedding(sum(self.categorical_count), self.n_cond)            
+            phi_1['cat']['embedder'] = nn.Embedding(sum(self.categorical_count), self.n_cond * self.n_hidden)            
             phi_1['cat']['mapper'] = nn.Sequential(
                 # input = (b, n_cat_col, n_cond)
                 # output = (b, n_cat_col, n_cond)
-                Reshape(-1, len(self.categorical_index) * self.n_cond, 1),
-                nn.GroupNorm(len(self.categorical_index), len(self.categorical_index) * self.n_cond),
-                FastGroupConv1d(len(self.categorical_index) * self.n_cond, len(self.categorical_index)*self.n_cond, kernel_size=1, groups=len(self.categorical_index)*self.n_cond if self.categorical_optimized else len(self.categorical_index), fast_mode=self.fast_mode),                
+                Reshape(-1, len(self.categorical_index) * self.n_cond  * self.n_hidden, 1),
+                nn.GroupNorm(len(self.categorical_index), len(self.categorical_index) * self.n_cond  * self.n_hidden),
+                FastGroupConv1d(
+                    len(self.categorical_index) * self.n_cond  * self.n_hidden,
+                    len(self.categorical_index) * self.n_cond  * self.n_hidden,
+                    kernel_size=1,
+                    groups=len(self.categorical_index) * self.n_cond  * self.n_hidden if self.categorical_optimized else len(self.categorical_index),
+                    fast_mode=self.fast_mode),                
                 nn.Sigmoid(),
-                Reshape(-1, len(self.categorical_index), self.n_cond)
+                Reshape(-1, len(self.categorical_index), self.n_cond, self.n_hidden)
             )
         return phi_1
 
@@ -109,33 +93,31 @@ class ConditionGeneration(nn.Module):
             cat_sample_emb = self.phi_1['cat']['mapper'](self.phi_1['cat']['embedder'](cat_x))
             M.append(cat_sample_emb)
 
-        M = torch.cat(M, dim=1) # (b, n_col, n_cond)
-        M = M.permute(0, 2, 1) # (b, n_cond, n_col)
+        M = torch.cat(M, dim=1) # (b, n_col, n_cond, n_hidden)
+        M = M.permute(0, 2, 1, 3) # (b, n_cond, n_col, n_hidden)
         return M
 
 
 class rODTConstruction(nn.Module):
-    def __init__(self, n_cond: int, n_col: int) -> None:
+    def __init__(self, n_cond: int, n_col: int, d: int) -> None:
         super().__init__()
         self.permutator = torch.rand(n_cond * n_col).argsort(-1)
+        self.d = d
 
     def forward(self, M: torch.Tensor) -> torch.Tensor:
-        return M.reshape(M.shape[0], -1, 1)[:, self.permutator, :]
+        b, _, _, embed_dim = M.shape
+        return M.reshape(b, -1, embed_dim)[:, self.permutator, :].reshape(b, -1, self.d, embed_dim)
 
 
 class rODTForestConstruction(nn.Module):
     def __init__(
         self,
-        n_col: int,
         n_rodt: int,
-        n_cond: int,
         n_estimator: int,
         n_head: int = 1,
         n_hidden: int = 128,
         n_forest: int = 100,
-        dropout: float = 0.0,
-        fast_mode: int = 64,
-        device = torch.device('cuda')
+        device = torch.device('cuda'),
     ) -> None:
 
         super().__init__()
@@ -146,35 +128,24 @@ class rODTForestConstruction(nn.Module):
         self.n_head = n_head
         self.n_hidden = n_hidden
 
-        self.phi_2 = nn.Sequential(
-            nn.GroupNorm(n_rodt, n_cond * n_col),
-            nn.Dropout(dropout),
-            FastGroupConv1d(n_cond * n_col, n_cond * n_col, groups=n_rodt, kernel_size=1, fast_mode=fast_mode),
-            nn.ReLU(),
-            nn.GroupNorm(n_rodt, n_cond * n_col),
-            nn.Dropout(dropout),
-            FastGroupConv1d(n_cond * n_col, n_rodt * n_head, groups=n_rodt, kernel_size=1, fast_mode=fast_mode), 
-            Reshape(-1, n_rodt, n_head)
-        )
-        self.E = nn.Embedding(n_rodt, n_hidden)
         self.sample_without_replacement_eval = self.get_sample_without_replacement()
 
     def get_sample_without_replacement(self) -> torch.Tensor:
         return torch.rand(self.n_forest, self.n_rodt, device=self.device).argsort(-1)[:, :self.n_estimator]
 
-    def forward(self, O: torch.Tensor) -> torch.Tensor:
-        b = O.shape[0]
-        w = self.phi_2(O) # (b, n_rodt, n_head)
-        E = self.E.weight.unsqueeze(0) # (1, n_rodt, n_hidden)
-
+    def forward(self, w, E) -> torch.Tensor:
+        # w: (b, n_rodt, 1)
+        # E: (b, n_rodt, n_hidden)
+    
         sample_without_replacement = self.get_sample_without_replacement() if self.training else self.sample_without_replacement_eval
 
-        w_prime = w[:, sample_without_replacement].softmax(-2).unsqueeze(-1) # (b, n_forest, n_rodt, n_head, 1)
+        w_prime = w[:, sample_without_replacement].softmax(-2) # (b, n_forest, n_rodt, 1)
         E_prime = E[:, sample_without_replacement].reshape(
-            1, self.n_forest, self.n_estimator, self.n_head, self.n_hidden // self.n_head
-        ) # (1, n_forest, n_rodt, n_head, n_hidden // n_head)
-        F = (w_prime * E_prime).sum(-3).reshape(
-            b, self.n_forest, self.n_hidden
+            E.shape[0], self.n_forest, self.n_estimator, self.n_hidden
+        ) # (b, n_forest, n_rodt, n_hidden)
+
+        F = (w_prime * E_prime).sum(-2).reshape(
+            E.shape[0], self.n_forest, self.n_hidden
         ) # (b, n_forest, n_hidden)
         return F
 
@@ -196,7 +167,84 @@ class rODTForestBagging(nn.Module):
         return self.phi_3(F) # (b, n_forest, n_class)
 
 
-class DOFEN(nn.Module):
+class MultiheadAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.scaling = self.head_dim ** -0.5
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.qw_proj = self.create_linear(embed_dim, embed_dim)
+        self.kw_proj = self.create_linear(embed_dim, embed_dim)
+        self.vw_proj = self.create_linear(embed_dim, embed_dim)
+        self.ow_proj = self.create_linear(embed_dim, 1)
+
+        self.qE_proj = self.create_linear(embed_dim, embed_dim)
+        self.kE_proj = self.create_linear(embed_dim, embed_dim)
+        self.vE_proj = self.create_linear(embed_dim, embed_dim)
+        self.oE_proj = self.create_linear(embed_dim, embed_dim)
+
+        self.dropout = nn.Dropout(dropout)
+
+    def create_linear(self, in_features: int, out_features: int):
+        linear = nn.Linear(in_features, out_features)
+        nn.init.xavier_uniform_(linear.weight, gain=1 / 2 ** 0.5)
+        return linear
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
+        """
+        query: Tensor of shape (batch_size, tgt_len, embed_dim)
+        key: Tensor of shape (batch_size, src_len, embed_dim)
+        value: Tensor of shape (batch_size, src_len, embed_dim)
+        attn_mask: Optional[Tensor] of shape (tgt_len, src_len) or (batch_size, tgt_len, src_len)
+        """
+        batch_size, tgt_len, _ = query.size()
+        src_len = key.size(1)
+
+        # Compute w
+        qw = self.qw_proj(query)  # shape: (batch_size, tgt_len, embed_dim)
+        kw = self.kw_proj(key)    # shape: (batch_size, src_len, embed_dim)
+        vw = self.vw_proj(value)  # shape: (batch_size, src_len, 1)
+
+        # Reshape into multihead format
+        qw = qw.view(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, tgt_len, head_dim)
+        kw = kw.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim)
+        vw = vw.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, 1)
+
+        attn_w = F.softmax(torch.matmul(qw, kw.transpose(-2, -1)) / self.scaling, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
+        attn_w = self.dropout(attn_w) 
+        attn_w_output = torch.matmul(attn_w, vw) # shape: (batch_size, num_heads, tgt_len, head_dim)
+
+        # Reshape back to original dimensions
+        attn_w_output = attn_w_output.transpose(1, 2).contiguous().view(batch_size, tgt_len, self.embed_dim) # shape: (batch_size, tgt_len, embed_dim)
+        w_output = self.ow_proj(attn_w_output) # shape: (batch_size, tgt_len, 1)
+        w_output = w_output.mean(1)
+
+        # Compute w
+        qE = self.qE_proj(query)  # shape: (batch_size, tgt_len, embed_dim)
+        kE = self.kE_proj(key)    # shape: (batch_size, src_len, embed_dim)
+        vE = self.vE_proj(value)  # shape: (batch_size, src_len, embed_dim)
+
+        # Reshape into multihead format
+        qE = qE.view(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, tgt_len, head_dim)
+        kE = kE.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim)
+        vE = vE.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, 1)
+
+        attn_E = F.softmax(torch.matmul(qE, kE.transpose(-2, -1)) / self.scaling, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
+        attn_E = self.dropout(attn_E) 
+        attn_E_output = torch.matmul(attn_E, vE) # shape: (batch_size, num_heads, tgt_len, head_dim)
+
+        # Reshape back to original dimensions
+        attn_E_output = attn_E_output.transpose(1, 2).contiguous().view(batch_size, tgt_len, self.embed_dim) # shape: (batch_size, tgt_len, embed_dim)
+        E_output = self.oE_proj(attn_E_output) # shape: (batch_size, tgt_len, embed_dim)
+        E_output = E_output.mean(1)
+
+        return w_output, E_output
+
+
+class DOFENTransformer(nn.Module):
     def __init__(
         self,
         category_column_count: List[int],
@@ -211,7 +259,6 @@ class DOFEN(nn.Module):
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
         device=torch.device('cuda'),
-        verbose: bool = False,
     ):
         super().__init__()
 
@@ -234,24 +281,31 @@ class DOFEN(nn.Module):
 
         self.condition_generation = ConditionGeneration(            
             category_column_count, 
-            n_cond=self.n_cond, 
+            n_cond=self.n_cond,
+            n_hidden=self.n_hidden,
             categorical_optimized=categorical_optimized, 
             fast_mode=fast_mode,
         )
+
+        self.proj = nn.Linear(1, self.n_hidden)
         self.rodt_construction = rODTConstruction(
-            self.n_cond, 
-            self.n_col
+            self.n_cond,
+            self.n_col,
+            self.d,
+        )
+
+        self.norm = nn.LayerNorm(n_hidden)
+        self.attn = MultiheadAttention(
+            embed_dim=self.n_hidden,
+            num_heads=n_head,
+            dropout=0.2,
         )
         self.rodt_forest_construction = rODTForestConstruction(
-            self.n_col, 
-            self.n_rodt, 
-            self.n_cond,
-            self.n_estimator,
+            n_rodt=self.n_rodt, 
+            n_estimator=self.n_estimator,
             n_head=self.n_head, 
             n_hidden=self.n_hidden,
             n_forest=self.n_forest,
-            dropout=self.dropout,
-            fast_mode=fast_mode,
             device=self.device
         )
         self.rodt_forest_bagging = rODTForestBagging(
@@ -260,12 +314,7 @@ class DOFEN(nn.Module):
             self.n_class
         )
 
-        if verbose:
-            print('='*20)
-            print('total condition: ', self.n_cond * self.n_col)
-            print('n_rodt: ', self.n_rodt)
-            print('n_estimator: ', self.n_estimator)    
-            print('='*20)
+        self.ffn_dropout_rate = 0.1
 
     def compute_loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
@@ -274,17 +323,27 @@ class DOFEN(nn.Module):
         raise NotImplementedError
 
     def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
-        M = self.condition_generation(x) # (b, n_cond, n_col)
-        O = self.rodt_construction(M) # (b, n_rodt, d)
-        F = self.rodt_forest_construction(O) # (b, n_forest, n_hidden)
-        y_hats = self.rodt_forest_bagging(F) # (b, n_forest, n_class)
-        y_hat = y_hats.mean(1) # (b, n_class)
+        M = self.condition_generation(x)           # (b, n_cond, n_col, n_hidden)
+        O = self.rodt_construction(M)              # (b, n_rodt, d, n_hidden)
+        O = O.reshape(-1, self.d, self.n_hidden)   # (b * n_rodt, d, n_hidden)
+        O = self.norm(O)
+        w, E = self.attn(O, O, O)
+
+        w = w.reshape(-1, self.n_rodt, 1)
+        E = E.reshape(-1, self.n_rodt, self.n_hidden)
+
+        E_norm = E / E.norm(dim=-1, keepdim=True)
+        # sim_loss = torch.einsum('bij,bjk->bik', E_norm, E_norm.permute(0, 2, 1))
+
+        F = self.rodt_forest_construction(w, E) # (b, n_forest, n_hidden)
+        y_hats = self.rodt_forest_bagging(F)    # (b, n_rodt, n_class)
+        y_hat = y_hats.mean(1)                  # (b, n_class)
 
         if y is not None:
             loss = self.compute_loss(
                 y_hats.permute(0, 2, 1) if not self.is_rgr else y_hats, 
                 y.unsqueeze(-1).expand(-1, self.n_forest)
-            )
+            ) #+  sim_loss.abs().mean()
             if self.n_forest > 1 and self.training and self.use_bagging_loss:
                 loss += self.compute_loss(y_hat, y)
             return {'pred': y_hat, 'loss': loss}
@@ -294,14 +353,14 @@ class DOFEN(nn.Module):
         return self.forward(x)['pred']
 
 
-class DOFENClassifier(BaseClassifier, DOFEN):
+class DOFENTransformerClassifier(BaseClassifier, DOFENTransformer):
     def __init__(
         self,
         category_column_count: List[int],
         n_class: int, 
-        m: int = 16, 
-        d: int = 4, 
-        n_head: int = 2,
+        m: int = 16,
+        d: int = 4,
+        n_head: int = 1,
         n_forest: int = 100,
         n_hidden: int = 128,
         dropout: float = 0.0, 
@@ -309,7 +368,6 @@ class DOFENClassifier(BaseClassifier, DOFEN):
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
         device=torch.device('cuda'),
-        verbose: bool = False,
     ) -> None:
 
         super().__init__(
@@ -325,17 +383,16 @@ class DOFENClassifier(BaseClassifier, DOFEN):
             fast_mode=fast_mode,
             use_bagging_loss=use_bagging_loss,
             device=device,
-            verbose=verbose,
         )
 
 
-class DOFENRegressor(BaseRegressor, DOFEN):
+class DOFENTransformerRegressor(BaseRegressor, DOFENTransformer):
     def __init__(
         self,
         category_column_count: List[int],
-        m: int = 16, 
-        d: int = 4, 
-        n_head: int = 1,
+        m: int = 16,
+        d: int = 4,
+        n_head: int = 4,
         n_forest: int = 100,
         n_hidden: int = 128,
         dropout: float = 0.0, 
@@ -343,12 +400,11 @@ class DOFENRegressor(BaseRegressor, DOFEN):
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
         device=torch.device('cuda'),
-        verbose: bool = False,
     ) -> None:
 
         super().__init__(
             category_column_count=category_column_count,
-            n_class=1,
+            n_class=-1,
             m=m,
             d=d,
             n_head=n_head,
@@ -359,5 +415,4 @@ class DOFENRegressor(BaseRegressor, DOFEN):
             fast_mode=fast_mode,
             use_bagging_loss=use_bagging_loss,
             device=device,
-            verbose=verbose,
         )

@@ -4,6 +4,7 @@ from .ft_transformer import FTTransformer, FTTransformerClassifier, FTTransforme
 from .diff_ft_transformer import DiffFTTransformer, DiffFTTransformerClassifier, DiffFTTransformerRegressor
 from .dint_ft_transformer import DINTFTTransformer, DINTFTTransformerClassifier, DINTFTTransformerRegressor
 from .dofen import DOFENClassifier, DOFENRegressor
+from .dofen_transformer import DOFENTransformerClassifier, DOFENTransformerRegressor
 
 
 def get_model(model_name: str) -> Union[FTTransformer, DiffFTTransformer, DINTFTTransformer]:
@@ -24,3 +25,7 @@ def get_model(model_name: str) -> Union[FTTransformer, DiffFTTransformer, DINTFT
             return DOFENClassifier
         case 'dofenr':
             return DOFENRegressor
+        case 'doformerc':
+            return DOFENTransformerClassifier
+        case 'doformerr':
+            return DOFENTransformerRegressor
