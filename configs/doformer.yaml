@@ -3,11 +3,12 @@ model:
   m: 16
   d: 4
   n_head: 4
-  n_forest: 100
-  n_hidden: 128
+  n_forest: 50
+  n_hidden: 32
   dropout: 0.0
   categorical_optimized: false
   fast_mode: 2048
   use_bagging_loss: false
 trainer:
   lr: 1e-3
+  save_model: true

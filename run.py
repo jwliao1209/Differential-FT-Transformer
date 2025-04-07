@@ -11,7 +11,7 @@ from src.utils import load_pkl_data, set_random_seed
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
-    parser.add_argument('--project_name', type=str, default='DOFEN')
+    parser.add_argument('--project_name', type=str, default='DOFEN_exp')
     parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
     parser.add_argument('--model', type=str, default='diff')
@@ -93,10 +93,10 @@ def main() -> None:
         model,
         batch_size=args.batch_size,
         n_epoch=args.n_epoch,
-        lr=config.trainer.lr,
         eval_funs=eval_funs,
         metric=metrics,
         logger=wandb,
+        **config.trainer,
     )
     trainer.fit(
         train_X=train_X, train_y=train_y,

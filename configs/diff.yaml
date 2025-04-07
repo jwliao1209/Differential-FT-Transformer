@@ -10,3 +10,4 @@ model:
   use_bias: true
 trainer:
   lr: 1e-4
+  save_model: false

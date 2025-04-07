@@ -19,6 +19,7 @@ class Trainer:
         metric: str = 'accuracy',
         logger: Optional[object] = None,
         device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+        save_model: bool = False,
         verbose: bool = True,
     ) -> None:
 
@@ -30,6 +31,7 @@ class Trainer:
         self.eval_funs = eval_funs
         self.metric = metric
         self.logger = logger
+        self.save_model = save_model
         self.verbose = verbose
         self.device = torch.device(device)
         self.set_optimization()
@@ -169,3 +171,6 @@ class Trainer:
                 self.logger.log(all_results)
 
         self.model.cpu()
+
+        if self.save_model:
+            torch.save(self.model.state_dict(), 'model.pth')

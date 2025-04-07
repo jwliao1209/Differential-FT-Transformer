@@ -11,3 +11,4 @@ model:
   use_bagging_loss: false
 trainer:
   lr: 1e-3
+  save_model: false
