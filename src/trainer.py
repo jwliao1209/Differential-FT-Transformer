@@ -6,6 +6,8 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 
+from .early_stop import EarlyStopping
+
 
 class Trainer:
     def __init__(
@@ -20,6 +22,7 @@ class Trainer:
         logger: Optional[object] = None,
         device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
         save_model: bool = False,
+        early_stop_patience: int = float('inf'),
         verbose: bool = True,
     ) -> None:
 
@@ -33,6 +36,7 @@ class Trainer:
         self.logger = logger
         self.save_model = save_model
         self.verbose = verbose
+        self.early_stopping = EarlyStopping(patience=early_stop_patience)
         self.device = torch.device(device)
         self.set_optimization()
 
@@ -141,15 +145,22 @@ class Trainer:
 
                 score = valid_results[f"valid_{self.metric}"]
                 if self.metric == 'rmse':
+                    self.early_stopping(score, 'min')
                     if score < best_valid_score:
                         best_valid_score = score
                         best_valid_epoch = curr_epoch
+                        
                 else:
+                    self.early_stopping(score, 'max')
                     if score > best_valid_score:
                         best_valid_score = score
                         best_valid_epoch = curr_epoch
 
-                valid_results |= {'best_valid_epoch': best_valid_epoch, 'best_valid_score': best_valid_score}
+                valid_results |= {
+                    'best_valid_epoch': best_valid_epoch,
+                    'best_valid_score': best_valid_score,
+                    'early_stop_counter': self.early_stopping.counter,
+                }
                 all_results |= valid_results
 
             if test_loader is not None:
@@ -169,6 +180,10 @@ class Trainer:
 
             if self.logger is not None:
                 self.logger.log(all_results)
+
+            if self.early_stopping.early_stop:
+                print("Stop training at epoch", curr_epoch)
+                break
 
         self.model.cpu()
 

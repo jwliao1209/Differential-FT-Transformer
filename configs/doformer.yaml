@@ -12,3 +12,4 @@ model:
 trainer:
   lr: 1e-3
   save_model: true
+  early_stop_patience: 100
