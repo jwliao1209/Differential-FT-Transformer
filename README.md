@@ -20,12 +20,14 @@ tar -xvf revisiting_models_data.tar.gz
 
 
 ## Training
+To train the model, run the command:
 ```
 bash scripts/run_exp.sh
 ```
 
 
 ## Unit Test
+To excute the unit test, run the command:
 ```
 bash scripts/run_test.sh
 ```
