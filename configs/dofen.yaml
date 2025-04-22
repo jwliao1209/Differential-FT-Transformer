@@ -9,7 +9,9 @@ model:
   categorical_optimized: false
   fast_mode: 2048
   use_bagging_loss: false
+data:
+  target_transform: false
 trainer:
   lr: 1e-3
   save_model: false
-  early_stop_patience: 100
+  early_stop_patience: 1000

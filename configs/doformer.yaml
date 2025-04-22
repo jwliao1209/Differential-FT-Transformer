@@ -3,13 +3,16 @@ model:
   m: 16
   d: 4
   n_head: 4
-  n_forest: 50
-  n_hidden: 32
+  n_forest: 50 # 100
+  n_hidden: 32 # 128
   dropout: 0.0
   categorical_optimized: false
   fast_mode: 2048
   use_bagging_loss: false
+  use_quantile_emb: true
+data:
+  target_transform: false
 trainer:
   lr: 1e-3
-  save_model: true
-  early_stop_patience: 100
+  save_model: false
+  early_stop_patience: 10000

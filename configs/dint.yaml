@@ -8,6 +8,8 @@ model:
   ffn_dropout_rate: 0.1
   residual_dropout_rate: .0
   use_bias: true
+data:
+  target_transform: true
 trainer:
   lr: 1e-4
   save_model: false
