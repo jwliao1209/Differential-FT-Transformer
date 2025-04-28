@@ -10,8 +10,8 @@ data_ids=(
     361072
     361073
     361074
-    361076
-    361077
+    # 361076 #
+    # 361077 #
     # 361068
     # 361274
     # 361113
@@ -21,7 +21,7 @@ data_ids=(
 )
 
 models=(
-    dofen
+    # dofen
     doformer
 )
 
@@ -32,7 +32,6 @@ for data_id in ${data_ids[@]}; do
             --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
             --data_id $data_id \
             --model $model \
-            --n_epoch 500 \
-            --target_transform
+            --n_epoch 1000
     done
 done
