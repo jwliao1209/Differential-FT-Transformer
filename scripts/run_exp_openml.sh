@@ -32,7 +32,6 @@ for data_id in ${data_ids[@]}; do
             --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
             --data_id $data_id \
             --model $model \
-            --n_epoch 300 \
-            --target_transform
+            --n_epoch 300
     done
 done

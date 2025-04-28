@@ -27,7 +27,6 @@ for model in ${models[@]}; do
             --data_dir ft_transformer_benchmark \
             --data_id $data_id \
             --model $model \
-            --n_epoch 500 \
-            --target_transform
+            --n_epoch 500
     done
 done
