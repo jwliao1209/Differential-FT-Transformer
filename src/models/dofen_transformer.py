@@ -1,3 +1,4 @@
+import math
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -9,6 +10,32 @@ from .base import BaseClassifier, BaseRegressor
 from .dofen import Reshape, FastGroupConv1d
 
 
+class SinusoidalEmbedding(nn.Module):
+    def __init__(self, d_model: int, max_scale: int = 1000.0) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.max_scale = max_scale
+
+        inv_freq = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(max_scale) / d_model)
+        )
+        self.register_buffer('inv_freq', inv_freq)
+
+    def forward(self, quantile_X: torch.Tensor) -> torch.Tensor:
+        """
+        quantile_X: Tensor, shape = (batch, num_features), values in [0, 1]
+        Returns:
+            sinusoidal embedding: shape = (batch, num_features, d_model)
+        """
+        B, F = quantile_X.shape
+        pos = quantile_X.unsqueeze(-1)  # (B, F, 1)
+        angle = pos * self.inv_freq  # (B, F, d_model//2)
+        emb = torch.zeros(B, F, self.d_model, device=quantile_X.device)
+        emb[..., 0::2] = torch.sin(angle)
+        emb[..., 1::2] = torch.cos(angle)
+        return emb.unsqueeze(2)
+
+
 class ConditionGeneration(nn.Module):
     def __init__(
         self,
@@ -17,8 +44,13 @@ class ConditionGeneration(nn.Module):
         n_hidden: int = 4,
         categorical_optimized: bool = False,
         fast_mode: int = 64,
-    ):
+        use_quantile_emb: bool = True,
+    ) -> None:
+
         super(ConditionGeneration, self).__init__()
+        self.n_cond = n_cond
+        self.n_hidden = n_hidden
+        self.use_quantile_emb = use_quantile_emb
         self.fast_mode = fast_mode
         self.categorical_optimized = categorical_optimized
 
@@ -30,8 +62,7 @@ class ConditionGeneration(nn.Module):
         categorical_offset = torch.tensor([0] + np.cumsum(self.categorical_count).tolist()[:-1]).long()
         self.register_buffer('categorical_offset', categorical_offset)
 
-        self.n_cond = n_cond
-        self.n_hidden = n_hidden
+        self.pos_emb = SinusoidalEmbedding(self.n_hidden, max_scale=1000.0)
         self.phi_1 = self.get_phi_1()
 
     def extract_feature_metadata(self, category_column_count: List[int]) -> Dict[str, List[int]]:
@@ -49,18 +80,31 @@ class ConditionGeneration(nn.Module):
         if len(self.numerical_index):
             phi_1['num'] = nn.Sequential(
                 # input = (b, n_num_col)
-                # output = (b, n_num_col, n_cond)
+                # output = (b, n_num_col, n_cond, n_hidden)
                 Reshape(-1, len(self.numerical_index), 1),
-                FastGroupConv1d(
-                    len(self.numerical_index),
-                    len(self.numerical_index) * self.n_cond * self.n_hidden,
-                    kernel_size=1,
-                    groups=len(self.numerical_index),
-                    fast_mode=self.fast_mode
-                ), # (b, n_num_col, 1) -> (b, n_num_col * n_cond, 1)
-                # nn.Sigmoid(),
+                nn.Linear(1, self.n_cond * self.n_hidden),
+                # (b, n_num_col, 1) -> (b, n_num_col, n_cond * n_hidden)
                 Reshape(-1, len(self.numerical_index), self.n_cond, self.n_hidden)
+                # (b, n_num_col, n_cond * n_hidden) -> (b, n_num_col, n_cond, n_hidden)
             )
+
+            # phi_1['num'] = nn.Sequential(
+            #     # input = (b, n_num_col)
+            #     # output = (b, n_num_col, n_cond)
+            #     Reshape(-1, len(self.numerical_index), 1),
+            #     FastGroupConv1d(
+            #         len(self.numerical_index),
+            #         len(self.numerical_index) * self.n_cond * self.n_hidden,
+            #         kernel_size=1,
+            #         groups=len(self.numerical_index),
+            #         fast_mode=self.fast_mode,
+            #     ),
+            #     nn.Sigmoid(),
+            #     Reshape(-1, len(self.numerical_index), self.n_cond, self.n_hidden),
+            # )
+
+            phi_1['num_comb'] = nn.Linear(2 * self.n_hidden, self.n_hidden)
+
         if len(self.categorical_index):
             phi_1['cat'] = nn.ModuleDict()
             phi_1['cat']['embedder'] = nn.Embedding(sum(self.categorical_count), self.n_cond * self.n_hidden)            
@@ -80,13 +124,21 @@ class ConditionGeneration(nn.Module):
             )
         return phi_1
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, quantile: torch.Tensor) -> torch.Tensor:
         M = []
 
         if len(self.numerical_index):
             num_x = x[:, self.numerical_index].float()
             num_sample_emb = self.phi_1['num'](num_x)
-            M.append(num_sample_emb)
+
+            if self.use_quantile_emb:
+                num_stats_emb = self.pos_emb(quantile)
+                num_stats_emb_expand = num_stats_emb.expand(num_sample_emb.shape)
+                M.append(
+                    self.phi_1['num_comb'](torch.cat([num_sample_emb, num_stats_emb_expand], dim=-1))
+                )
+            else:
+                M.append(num_sample_emb)
 
         if len(self.categorical_index):
             cat_x = x[:, self.categorical_index].long() + self.cat_offset
@@ -168,7 +220,7 @@ class rODTForestBagging(nn.Module):
 
 
 class MultiheadAttention(nn.Module):
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.):
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.) -> None:
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -188,7 +240,7 @@ class MultiheadAttention(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def create_linear(self, in_features: int, out_features: int):
+    def create_linear(self, in_features: int, out_features: int) -> nn.Linear:
         linear = nn.Linear(in_features, out_features)
         nn.init.xavier_uniform_(linear.weight, gain=1 / 2 ** 0.5)
         return linear
@@ -258,8 +310,10 @@ class DOFENTransformer(nn.Module):
         categorical_optimized: bool = False,
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
-        device=torch.device('cuda'),
-    ):
+        use_quantile_emb: bool = True,
+        device: torch.device = torch.device('cuda'),
+    ) -> None:
+
         super().__init__()
 
         self.device = device
@@ -283,11 +337,11 @@ class DOFENTransformer(nn.Module):
             category_column_count, 
             n_cond=self.n_cond,
             n_hidden=self.n_hidden,
-            categorical_optimized=categorical_optimized, 
+            categorical_optimized=categorical_optimized,
             fast_mode=fast_mode,
+            use_quantile_emb=use_quantile_emb,
         )
 
-        self.proj = nn.Linear(1, self.n_hidden)
         self.rodt_construction = rODTConstruction(
             self.n_cond,
             self.n_col,
@@ -322,8 +376,23 @@ class DOFENTransformer(nn.Module):
     def evaluate(self, X: torch.Tensor, y: torch.Tensor) -> Dict[str, torch.Tensor]:
         raise NotImplementedError
 
-    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
-        M = self.condition_generation(x)           # (b, n_cond, n_col, n_hidden)
+    def forward(
+        self,
+        X: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+        quantile: Optional[torch.Tensor] = None,
+        *args,
+        **kwargs,
+    ) -> None:
+
+        M = self.condition_generation(X, quantile) # (b, n_cond, n_col, n_hidden)
+        temp = M.permute(0, 2, 1, 3).reshape(-1, self.n_cond, self.n_hidden) # (b * n_col, n_cond, n_hidden)
+
+        # cos similarity loss
+        temp_norm = temp / torch.norm(temp, dim=-1, keepdim=True)
+        temp_matrix = torch.einsum('bij,bjk->bik', temp_norm, temp_norm.permute(0, 2, 1))
+        sim_loss = temp_matrix.abs().mean()
+
         O = self.rodt_construction(M)              # (b, n_rodt, d, n_hidden)
         O = O.reshape(-1, self.d, self.n_hidden)   # (b * n_rodt, d, n_hidden)
         O = self.norm(O)
@@ -332,7 +401,7 @@ class DOFENTransformer(nn.Module):
         w = w.reshape(-1, self.n_rodt, 1)
         E = E.reshape(-1, self.n_rodt, self.n_hidden)
 
-        E_norm = E / E.norm(dim=-1, keepdim=True)
+        # E_norm = E / E.norm(dim=-1, keepdim=True)
         # sim_loss = torch.einsum('bij,bjk->bik', E_norm, E_norm.permute(0, 2, 1))
 
         F = self.rodt_forest_construction(w, E) # (b, n_forest, n_hidden)
@@ -343,14 +412,14 @@ class DOFENTransformer(nn.Module):
             loss = self.compute_loss(
                 y_hats.permute(0, 2, 1) if not self.is_rgr else y_hats, 
                 y.unsqueeze(-1).expand(-1, self.n_forest)
-            ) #+  sim_loss.abs().mean()
+            ) #+ sim_loss
             if self.n_forest > 1 and self.training and self.use_bagging_loss:
                 loss += self.compute_loss(y_hat, y)
             return {'pred': y_hat, 'loss': loss}
         return {'pred': y_hat}
 
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)['pred']
+    def predict(self, X: torch.Tensor, quantile: torch.Tensor) -> torch.Tensor:
+        return self.forward(X=X, quantile=quantile)['pred']
 
 
 class DOFENTransformerClassifier(BaseClassifier, DOFENTransformer):
@@ -367,7 +436,10 @@ class DOFENTransformerClassifier(BaseClassifier, DOFENTransformer):
         categorical_optimized: bool = False,
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
-        device=torch.device('cuda'),
+        use_quantile_emb: bool = True,
+        device: torch.device = torch.device('cuda'),
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
@@ -382,6 +454,7 @@ class DOFENTransformerClassifier(BaseClassifier, DOFENTransformer):
             categorical_optimized=categorical_optimized,
             fast_mode=fast_mode,
             use_bagging_loss=use_bagging_loss,
+            use_quantile_emb=use_quantile_emb,
             device=device,
         )
 
@@ -399,7 +472,10 @@ class DOFENTransformerRegressor(BaseRegressor, DOFENTransformer):
         categorical_optimized: bool = False,
         fast_mode: int = 2048,
         use_bagging_loss: bool = False,
-        device=torch.device('cuda'),
+        use_quantile_emb: bool = True,
+        device: torch.device = torch.device('cuda'),
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
@@ -414,5 +490,6 @@ class DOFENTransformerRegressor(BaseRegressor, DOFENTransformer):
             categorical_optimized=categorical_optimized,
             fast_mode=fast_mode,
             use_bagging_loss=use_bagging_loss,
+            use_quantile_emb=use_quantile_emb,
             device=device,
         )
