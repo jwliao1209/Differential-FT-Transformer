@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Dict, Optional
 
 import torch
 import torch.nn.functional as F
@@ -11,7 +11,7 @@ from .layers import ReGLU, ResidualLayer, FeatureTokenizer, MultiheadDiffAttenti
 class DiffFTTransformer(nn.Module):
     def __init__(
         self,
-        n_class,
+        n_class: int,
         category_column_count: List[int],
         d_token: int = 192,
         d_ffn_factor: float = 4 / 3,
@@ -55,15 +55,18 @@ class DiffFTTransformer(nn.Module):
     def compute_loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
-    def evaluate(self, X, y):
+    def evaluate(self, X: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
     def forward(
         self,
-        x: torch.Tensor,
+        X: torch.Tensor,
         y: Optional[torch.Tensor] = None,
-    ):
-        x = self.feat_tokenizer(x)
+        *args,
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+
+        x = self.feat_tokenizer(X)
         x_res = x
         for i, layer in enumerate(self.layers):
             if i != len(self.layers) - 1: 
@@ -87,14 +90,14 @@ class DiffFTTransformer(nn.Module):
             return {'pred': y_hat, 'loss': loss}
         return {'pred': y_hat}
 
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)['pred']
+    def predict(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        return self.forward(X)['pred']
 
 
 class DiffFTTransformerClassifier(BaseClassifier, DiffFTTransformer):
     def __init__(
         self,
-        n_class,
+        n_class: int,
         category_column_count: List[int],
         d_token: int = 192,
         d_ffn_factor: float = 4 / 3,
@@ -104,6 +107,8 @@ class DiffFTTransformerClassifier(BaseClassifier, DiffFTTransformer):
         ffn_dropout_rate: float = 0.1,
         residual_dropout_rate: float = 0.,
         use_bias: bool = True,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
@@ -132,6 +137,8 @@ class DiffFTTransformerRegressor(BaseRegressor, DiffFTTransformer):
         ffn_dropout_rate: float = 0.1,
         residual_dropout_rate: float = 0.,
         use_bias: bool = True,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(

@@ -1,12 +1,10 @@
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from tqdm import trange, tqdm
-
-from .early_stop import EarlyStopping
 
 
 class Trainer:
@@ -59,10 +57,13 @@ class Trainer:
 
     def train(self, train_loader: DataLoader) -> None:
         self.model.train()
-        for X, y in train_loader:
-            X, y = X.to(self.device), y.to(self.device)
+        for data in train_loader:
             self.optimizer.zero_grad()
-            outputs = self.model(X, y)
+            outputs = self.model(
+                X=data.X.to(self.device),
+                y=data.y.to(self.device),
+                quantile=data.quantile.to(self.device) if data.quantile is not None else None,
+            )
             outputs['loss'].backward()
             self.optimizer.step()
 
@@ -73,10 +74,13 @@ class Trainer:
     def test(self, test_loader: DataLoader) -> Dict[str, float]:
         self.model.eval()
         preds, labels = [], []
-        for X, y in test_loader:
-            pred = self.model.predict(X.to(self.device)).detach().cpu().numpy()
+        for data in test_loader:
+            pred = self.model.predict(
+                X=data.X.to(self.device),
+                quantile=data.quantile.to(self.device) if data.quantile is not None else None,
+            ).detach().cpu().numpy()
             preds.append(pred)
-            labels.append(y)
+            labels.append(data.y)
         preds = np.concatenate(preds, axis=0)
         labels = np.concatenate(labels, axis=0)
 
@@ -87,46 +91,10 @@ class Trainer:
 
     def fit(
         self,
-        train_X: Union[np.ndarray, torch.Tensor],
-        train_y: Union[np.ndarray, torch.Tensor],
-        valid_X: Optional[Union[np.ndarray, torch.Tensor]] = None,
-        valid_y: Optional[Union[np.ndarray, torch.Tensor]] = None,
-        test_X: Optional[Union[np.ndarray, torch.Tensor]] = None,
-        test_y: Optional[Union[np.ndarray, torch.Tensor]] = None,
+        train_loader: DataLoader,
+        valid_loader: Optional[DataLoader] = None,
+        test_loader: Optional[DataLoader] = None,
     ) -> None:
-
-        train_X = torch.tensor(train_X) if not isinstance(train_X, torch.Tensor) else train_X
-        train_y = torch.tensor(train_y) if not isinstance(train_y, torch.Tensor) else train_y
-        train_loader = DataLoader(
-            TensorDataset(train_X, train_y), 
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=False,
-        )
-
-        if valid_X is not None and valid_y is not None:
-            valid_X = torch.tensor(valid_X) if not isinstance(valid_X, torch.Tensor) else valid_X
-            valid_y = torch.tensor(valid_y) if not isinstance(valid_y, torch.Tensor) else valid_y
-            valid_loader = DataLoader(
-                TensorDataset(valid_X, valid_y), 
-                batch_size=self.batch_size,
-                shuffle=False,
-                drop_last=False,
-            )
-        else:
-            valid_loader = None
-
-        if test_X is not None and test_y is not None:
-            test_X = torch.tensor(test_X) if not isinstance(test_X, torch.Tensor) else test_X
-            test_y = torch.tensor(test_y) if not isinstance(test_y, torch.Tensor) else test_y
-            test_loader = DataLoader(
-                TensorDataset(test_X, test_y), 
-                batch_size=self.batch_size,
-                shuffle=False,
-                drop_last=False,
-            )
-        else:
-            test_loader = None
 
         best_valid_epoch = 0
         best_valid_score = float('inf') if self.metric == 'rmse' else -float('inf')
@@ -149,7 +117,6 @@ class Trainer:
                     if score < best_valid_score:
                         best_valid_score = score
                         best_valid_epoch = curr_epoch
-                        
                 else:
                     self.early_stopping(score, 'max')
                     if score > best_valid_score:
@@ -172,7 +139,7 @@ class Trainer:
 
                 test_results |= {'selected_test_score': selected_test_score}
                 all_results |= test_results
-            
+
             pbar.set_postfix({'selected_test_score': selected_test_score})
 
             if self.verbose:
@@ -189,3 +156,38 @@ class Trainer:
 
         if self.save_model:
             torch.save(self.model.state_dict(), 'model.pth')
+
+
+class EarlyStopping:
+    def __init__(
+        self,
+        patience: int = 5,
+        delta: float = 0.0,
+        verbose: bool = False,
+    ) -> None:
+
+        self.patience = patience
+        self.delta = delta
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+
+    def __call__(self, current_score: float, mode: str) -> None:
+        score = -current_score if mode == 'min' else current_score
+
+        if self.best_score is None:
+            self.best_score = score
+
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} / {self.patience}')
+            if self.counter >= self.patience:
+                if self.verbose:
+                    print('Early stopping triggered.')
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.counter = 0

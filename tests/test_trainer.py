@@ -1,9 +1,10 @@
 import pytest
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from sklearn.metrics import r2_score
 
+from dataset import TabularDataset, collate_fn
 from trainer import Trainer
 
 
@@ -13,14 +14,14 @@ class DummyModel(nn.Module):
         super().__init__()
         self.linear = nn.Linear(input_dim, output_dim)
 
-    def forward(self, X, y=None):
+    def forward(self, X, y=None, *args, **kwargs):
         output = self.linear(X)
         loss = None
         if y is not None:
             loss = torch.nn.functional.mse_loss(output, y.float())
         return {"pred": output, "loss": loss}
     
-    def predict(self, X):
+    def predict(self, X, *args, **kwargs):
         return self.forward(X)["pred"].argmax(dim=1)
 
 
@@ -66,9 +67,10 @@ def test_train(setup_trainer):
     train_X = torch.randn(32, input_dim)
     train_y = torch.randn(32, 1)
     train_loader = DataLoader(
-        TensorDataset(train_X, train_y),
+        TabularDataset(X=train_X, y=train_y),
         batch_size=trainer.batch_size,
-        shuffle=True
+        shuffle=True,
+        collate_fn=collate_fn,
     )
     trainer.model.to(trainer.device)
     initial_weight = trainer.model.linear.weight.clone()
@@ -84,9 +86,10 @@ def test_test(setup_trainer):
     test_X = torch.randn(32, input_dim)
     test_y = torch.randn(32, 1)
     test_loader = DataLoader(
-        TensorDataset(test_X, test_y),
+        TabularDataset(X=test_X, y=test_y),
         batch_size=trainer.batch_size,
-        shuffle=False
+        shuffle=False,
+        collate_fn=collate_fn,
     )
     trainer.model.to(trainer.device)
     result = trainer.test(test_loader)
@@ -102,11 +105,20 @@ def test_fit(setup_trainer):
     train_y = torch.randn(64, 1)
     test_X = torch.randn(32, input_dim)
     test_y = torch.randn(32, 1)
-
-    trainer.fit(train_X, train_y, test_X=test_X, test_y=test_y)
+    train_loader = DataLoader(
+        TabularDataset(X=train_X, y=train_y),
+        batch_size=trainer.batch_size,
+        collate_fn=collate_fn,
+    )
+    test_loader = DataLoader(
+        TabularDataset(X=test_X, y=test_y),
+        batch_size=trainer.batch_size,
+        collate_fn=collate_fn,
+    )
+    trainer.fit(train_loader=train_loader, test_loader=test_loader)
     trainer.model.to(trainer.device)
 
     # Check if model weights are updated during training
     initial_weight = trainer.model.linear.weight.clone()
-    trainer.train(DataLoader(TensorDataset(train_X, train_y), batch_size=trainer.batch_size))
+    trainer.train(train_loader)
     assert not torch.equal(initial_weight, trainer.model.linear.weight)

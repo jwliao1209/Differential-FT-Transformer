@@ -285,8 +285,8 @@ class DOFEN(nn.Module):
     def evaluate(self, X: torch.Tensor, y: torch.Tensor) -> Dict[str, torch.Tensor]:
         raise NotImplementedError
 
-    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
-        M = self.condition_generation(x) # (b, n_cond, n_col)
+    def forward(self, X: torch.Tensor, y: Optional[torch.Tensor] = None, *args, **kwargs) -> Dict[str, torch.Tensor]:
+        M = self.condition_generation(X) # (b, n_cond, n_col)
         O = self.rodt_construction(M) # (b, n_rodt, d)
         F = self.rodt_forest_construction(O) # (b, n_forest, n_hidden)
         y_hats = self.rodt_forest_bagging(F) # (b, n_forest, n_class)
@@ -302,8 +302,8 @@ class DOFEN(nn.Module):
             return {'pred': y_hat, 'loss': loss}
         return {'pred': y_hat}
 
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)['pred']
+    def predict(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        return self.forward(X)['pred']
 
 
 class DOFENClassifier(BaseClassifier, DOFEN):
@@ -322,6 +322,8 @@ class DOFENClassifier(BaseClassifier, DOFEN):
         use_bagging_loss: bool = False,
         device = torch.device('cuda'),
         verbose: bool = False,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
@@ -356,6 +358,8 @@ class DOFENRegressor(BaseRegressor, DOFEN):
         use_bagging_loss: bool = False,
         device=torch.device('cuda'),
         verbose: bool = False,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(

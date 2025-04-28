@@ -60,10 +60,12 @@ class DINTFTTransformer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
+        X: torch.Tensor,
         y: Optional[torch.Tensor] = None,
+        *args,
+        **kwargs,
     ):
-        x = self.feat_tokenizer(x)
+        x = self.feat_tokenizer(X)
         x_res = x
         for i, layer in enumerate(self.layers):
             if i != len(self.layers) - 1: 
@@ -87,8 +89,8 @@ class DINTFTTransformer(nn.Module):
             return {'pred': y_hat, 'loss': loss}
         return {'pred': y_hat}
 
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)['pred']
+    def predict(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        return self.forward(X)['pred']
 
 
 class DINTFTTransformerClassifier(BaseClassifier, DINTFTTransformer):
@@ -104,6 +106,8 @@ class DINTFTTransformerClassifier(BaseClassifier, DINTFTTransformer):
         ffn_dropout_rate: float = 0.1,
         residual_dropout_rate: float = 0.,
         use_bias: bool = True,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
@@ -132,6 +136,8 @@ class DINTFTTransformerRegressor(BaseRegressor, DINTFTTransformer):
         ffn_dropout_rate: float = 0.1,
         residual_dropout_rate: float = 0.,
         use_bias: bool = True,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
