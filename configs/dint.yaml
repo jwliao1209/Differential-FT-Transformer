@@ -8,6 +8,7 @@ model:
   ffn_dropout_rate: 0.1
   residual_dropout_rate: .0
   use_bias: true
+  norm: layer_norm
 data:
   target_transform: true
 trainer:

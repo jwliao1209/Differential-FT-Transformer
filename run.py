@@ -2,6 +2,8 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from datetime import datetime
 
+import numpy as np
+import torch
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
 from sklearn.preprocessing import QuantileTransformer
@@ -18,15 +20,15 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--project_name', type=str, default='DOFEN_exp')
     parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
-    parser.add_argument('--model', type=str, default='diff')
-    parser.add_argument('--norm', type=str, default='layer_norm')
-    parser.add_argument('--n_epoch', type=int, default=100)
+    parser.add_argument('--model', type=str, default='doformer')
+    parser.add_argument('--n_epoch', type=int, default=500)
     parser.add_argument('--batch_size', type=str, default=256)
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--cross_table', action='store_true')
     return parser.parse_args()
 
 
-def load_data(data_dir: str, data_id: str, data_config):
+def prepare_dataloader(data_dir: str, data_id: str, data_config, batch_size: int):
     data_dict = load_pkl_data(Path(data_dir, data_id, '0.pkl'))
     n_class = data_dict['label_cat_count']
     task = 'r' if n_class == -1 else 'c'
@@ -57,65 +59,176 @@ def load_data(data_dir: str, data_id: str, data_config):
     valid_set = TabularDataset(X=valid_X, y=valid_y, quantile=valid_X_quantile)
     test_set = TabularDataset(X=test_X, y=test_y, quantile=test_X_quantile)
 
-    return train_set, valid_set, test_set, n_class, data_args, col_cat_count
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, drop_last=False)
+    valid_loader = DataLoader(valid_set, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, drop_last=False)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, drop_last=False)
+
+    return train_loader, [valid_loader], [test_loader], n_class, data_args, col_cat_count
 
 
-# def load_cross_table_data(data_dir: str, data_config):
-#     data_ids = [
-#         '361055', # 10
-#         '361060', # 7
-#         '361061', # 10
-#         '361062', # 26
-#         '361065', # 10
-#         '361069', # 24
-#     ]
+def prepare_cross_table_dataloader(data_dir: str, batch_size: int):
+    all_train_data = []
+    all_valid_dataset = []
+    all_test_dataset = []
+    num_column = 26
 
-#     n_class = 2
-#     task = 'c'
+    data_ids = [
+        '361055', # 10
+        '361060', # 7
+        '361061', # 10
+        '361062', # 26
+        '361065', # 10
+        '361069'  # 24
+    ]
+    data_dir = '/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data'
 
-#     train_X
-#     train_y
-#     valid_X
-#     valid_y
-#     test_X
-#     test_y
+    PAD_VALUE = 0
 
-#     data_args = {
-#         'task': task,
-#         'n_feature': 26,
-#         'n_train': 0,
-#         'n_valid': 0,
-#         'n_test': 0,
-#     }
+    for data_id in data_ids:
+        data_dict = load_pkl_data(Path(data_dir, data_id, '0.pkl'))
 
-#     col_cat_count = data_dict['col_cat_count']
+        train_X = data_dict['x_train']
+        train_y = data_dict['y_train']
 
-#     for data_id in data_ids:
-#         data_dict = load_pkl_data(Path(data_dir, data_id, '0.pkl'))
-#         n_class = data_dict['label_cat_count']
+        train_mask = np.zeros((train_X.shape[0], num_column))
+        train_mask[:train_X.shape[0], :train_X.shape[1]] = True
 
-#         train_X = data_dict['x_train']
-#         train_y = data_dict['y_train']
-#         valid_X = data_dict['x_val']
-#         valid_y = data_dict['y_val']
-#         test_X = data_dict['x_test']
-#         test_y = data_dict['y_test']
+        train_X = np.pad(
+            train_X,
+            pad_width=[(0, 0), (0, num_column - train_X.shape[1])],
+            mode='constant',
+            constant_values=PAD_VALUE,
+        )
+        
+        qt = QuantileTransformer(output_distribution='uniform', n_quantiles=100)
+        train_quantile_X = qt.fit_transform(data_dict['x_train_raw'])
+        train_quantile_X = np.pad(
+            train_quantile_X,
+            pad_width=[(0, 0), (0, num_column - train_quantile_X.shape[1])],
+            mode='constant',
+            constant_values=PAD_VALUE,
+        )
 
-#         data_args = {
-#             'task': task,
-#             'n_feature': train_X.shape[1],
-#             'n_train': train_X.shape[0],
-#             'n_valid': valid_X.shape[0],
-#             'n_test': test_X.shape[0],
-#         }
-#         col_cat_count = data_dict['col_cat_count']
+        all_train_data.append((train_X, train_mask, train_quantile_X, train_y))
 
+        valid_X = data_dict['x_val']
+        valid_y = data_dict['y_val']
 
-#     train_set = TabularDataset(X=train_X, y=train_y)
-#     valid_set = TabularDataset(X=valid_X, y=valid_y)
-#     test_set = TabularDataset(X=test_X, y=test_y)
+        valid_mask = np.zeros((valid_X.shape[0], num_column))
+        valid_mask[:valid_X.shape[0], :valid_X.shape[1]] = True
 
-#     return train_set, valid_set, test_set, n_class, data_args, col_cat_count
+        valid_X = np.pad(
+            valid_X,
+            pad_width=[(0, 0), (0, num_column - valid_X.shape[1])],
+            mode='constant',
+            constant_values=PAD_VALUE,
+        )
+
+        valid_X_quantile = qt.transform(data_dict['x_val_raw'])
+        valid_X_quantile = np.pad(
+            valid_X_quantile,
+            pad_width=[(0, 0), (0, num_column - valid_X_quantile.shape[1])],
+            mode='constant',
+            constant_values=PAD_VALUE,
+        )
+
+        valid_set = TabularDataset(
+            X=valid_X,
+            y=valid_y,
+            quantile=valid_X_quantile,
+            mask=valid_mask,
+        )
+
+        all_valid_dataset.append(valid_set)
+
+        test_X = data_dict['x_test']
+        test_y = data_dict['y_test']
+
+        test_mask = np.zeros((test_X.shape[0], num_column))
+        test_mask[:test_X.shape[0], :test_X.shape[1]] = True
+
+        test_X = np.pad(
+            test_X,
+            pad_width=[(0, 0), (0, num_column - test_X.shape[1])],
+            mode='constant',
+            constant_values=PAD_VALUE,
+        )
+
+        test_X_quantile = qt.transform(data_dict['x_test_raw'])
+        test_X_quantile = np.pad(
+            test_X_quantile,
+            pad_width=[(0, 0), (0, num_column - test_X_quantile.shape[1])],
+            mode='constant',
+            constant_values=PAD_VALUE,
+        )
+
+        test_set = TabularDataset(
+            X=test_X,
+            y=test_y,
+            quantile=test_X_quantile,
+            mask=test_mask,
+        )
+
+        all_test_dataset.append(test_set)
+
+    all_train_X = np.concatenate([data[0] for data in all_train_data], axis=0)
+    all_train_mask = np.concatenate([data[1] for data in all_train_data], axis=0)
+    all_train_quantile = np.concatenate([data[2] for data in all_train_data], axis=0)
+    all_train_y = np.concatenate([data[3] for data in all_train_data], axis=0)
+
+    n_class = 2
+    col_cat_count = [-1] * 26
+    all_train_dataset = TabularDataset(
+        X=all_train_X,
+        y=all_train_y,
+        quantile=all_train_quantile,
+        mask=all_train_mask,
+    )
+
+    all_train_loader = DataLoader(
+        all_train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        drop_last=False,
+    )
+
+    all_valid_loader = [
+        DataLoader(
+            valid_set,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=collate_fn,
+            drop_last=False,
+        )
+        for valid_set in all_valid_dataset
+    ]
+
+    all_test_loader = [
+        DataLoader(
+            test_set,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=collate_fn,
+            drop_last=False,
+        )
+        for test_set in all_test_dataset
+    ]
+
+    data_args = {
+        'task': 'c',
+        'n_feature': all_train_X.shape[1],
+        'n_train': all_train_X.shape[0],
+    }
+
+    return (
+        all_train_loader,
+        all_valid_loader,
+        all_test_loader,
+        n_class,
+        data_args,
+        col_cat_count,
+    )
 
 
 def main() -> None:
@@ -123,18 +236,24 @@ def main() -> None:
     config = OmegaConf.load(Path('configs', f'{args.model}.yaml'))
     set_random_seed()
 
-    (
-        train_set,
-        valid_set,
-        test_set,
-        n_class,
-        data_args,
-        col_cat_count,
-    ) = load_data(args.data_dir, args.data_id, config.data)
-
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=False)
-    valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, drop_last=False)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, drop_last=False)
+    if args.cross_table:
+        (
+            train_loader,
+            valid_loader,
+            test_loader,
+            n_class,
+            data_args,
+            col_cat_count,
+        ) = prepare_cross_table_dataloader(args.data_dir, args.batch_size)
+    else:
+        (
+            train_loader,
+            valid_loader,
+            test_loader,
+            n_class,
+            data_args,
+            col_cat_count,
+        ) = prepare_dataloader(args.data_dir, args.data_id, config.data, args.batch_size)
 
     model_params = {
         **config.model,
@@ -144,29 +263,28 @@ def main() -> None:
     if n_class != -1:
         model_params['n_class'] = n_class
 
-    model = get_model(args.model + data_args['task'])(**model_params)
+    model = get_model(
+        model_name=args.model + data_args['task'],
+        model_config=model_params,
+    )
+
+
+    # ###### Use pretrained model #######
+    # checkpoint = torch.load('cross_table_model.pth')
+    # model.load_state_dict(checkpoint)
+
+    # for name, param in model.named_parameters():
+    #     if 'rodt_forest_bagging' not in name:
+    #         param.requires_grad = False
+
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: requires_grad = {param.requires_grad}")
+
+    # import pdb; pdb.set_trace()
+    # ####################################
+
     eval_funs = cls_eval_funs if data_args['task'] == 'c' else reg_eval_funs
     metrics = 'accuracy' if data_args['task'] == 'c' else 'r2'
-
-    if args.norm == 'layer_norm':
-        pass
-    elif args.norm == 'dyt':
-        from src.models.dyt import convert_ln_to_dyt
-        model = convert_ln_to_dyt(model)
-    elif args.norm == 'dyat':
-        from src.models.dyt import convert_ln_to_dyat
-        model = convert_ln_to_dyat(model)
-    elif args.norm == 'fdyat':
-        from src.models.dyt import convert_ln_to_fdyat
-        model = convert_ln_to_fdyat(model)
-    elif args.norm == 'dys':
-        from src.models.dyt import convert_ln_to_dys
-        model = convert_ln_to_dys(model)
-    elif args.norm == 'dyas':
-        from src.models.dyt import convert_ln_to_dyas
-        model = convert_ln_to_dyas(model)
-    else:
-        raise ValueError(f"Invalid norm: {args.norm}")
 
     if args.debug:
         wandb = None
@@ -190,8 +308,8 @@ def main() -> None:
     )
     trainer.fit(
         train_loader=train_loader,
-        valid_loader=valid_loader,
-        test_loader=test_loader,
+        valid_loaders=valid_loader,
+        test_loaders=test_loader,
     )
 
 if __name__ == '__main__':

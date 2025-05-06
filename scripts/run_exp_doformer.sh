@@ -28,10 +28,10 @@ models=(
 for data_id in ${data_ids[@]}; do
     for model in ${models[@]}; do
         python run.py \
-            --project_name DoFormer \
+            --project_name doformer_cross_table \
             --data_dir /home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data \
             --data_id $data_id \
             --model $model \
-            --n_epoch 1000
+            --n_epoch 500
     done
 done

@@ -10,17 +10,26 @@ class TabularDatasetOutput:
     X: np.ndarray
     y: np.ndarray
     quantile: np.ndarray = None
+    mask: np.ndarray = None
 
     def __len__(self):
         return len(self.X)
 
 
 class TabularDataset(Dataset):
-    def __init__(self, X: np.ndarray, y: np.ndarray, quantile: np.ndarray = None) -> None:
+    def __init__(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        quantile: np.ndarray = None,
+        mask: np.ndarray = None,
+    ) -> None:
+
         super().__init__()
         self.X = torch.Tensor(X)
         self.y = torch.Tensor(y)
         self.quantile = torch.Tensor(quantile) if quantile is not None else None
+        self.mask = torch.Tensor(mask) if mask is not None else None
 
     def __len__(self) -> int:
         return self.X.shape[0]
@@ -30,6 +39,7 @@ class TabularDataset(Dataset):
             X=self.X[i],
             y=self.y[i],
             quantile=self.quantile[i] if self.quantile is not None else None,
+            mask=self.mask[i] if self.mask is not None else None,
         )
     
 

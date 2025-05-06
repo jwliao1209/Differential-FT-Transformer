@@ -63,6 +63,7 @@ class Trainer:
                 X=data.X.to(self.device),
                 y=data.y.to(self.device),
                 quantile=data.quantile.to(self.device) if data.quantile is not None else None,
+                mask=data.mask.to(self.device) if data.mask is not None else None,
             )
             outputs['loss'].backward()
             self.optimizer.step()
@@ -78,6 +79,7 @@ class Trainer:
             pred = self.model.predict(
                 X=data.X.to(self.device),
                 quantile=data.quantile.to(self.device) if data.quantile is not None else None,
+                mask=data.mask.to(self.device) if data.mask is not None else None,
             ).detach().cpu().numpy()
             preds.append(pred)
             labels.append(data.y)
@@ -92,8 +94,8 @@ class Trainer:
     def fit(
         self,
         train_loader: DataLoader,
-        valid_loader: Optional[DataLoader] = None,
-        test_loader: Optional[DataLoader] = None,
+        valid_loaders: Optional[DataLoader] = None,
+        test_loaders: Optional[DataLoader] = None,
     ) -> None:
 
         best_valid_epoch = 0
@@ -107,37 +109,41 @@ class Trainer:
 
             all_results = {'epoch': curr_epoch}
 
-            if valid_loader is not None:
-                results = self.test(valid_loader)
-                valid_results = {f"valid_{metric}": value for metric, value in results.items()}
+            if valid_loaders is not None:
+                valid_results = {}
+                for i, valid_loader in enumerate(valid_loaders):
+                    results = self.test(valid_loader)
+                    valid_results |= {f"{i}_valid_{metric}": value for metric, value in results.items()}
 
-                score = valid_results[f"valid_{self.metric}"]
-                if self.metric == 'rmse':
-                    self.early_stopping(score, 'min')
-                    if score < best_valid_score:
-                        best_valid_score = score
-                        best_valid_epoch = curr_epoch
-                else:
-                    self.early_stopping(score, 'max')
-                    if score > best_valid_score:
-                        best_valid_score = score
-                        best_valid_epoch = curr_epoch
+                # score = valid_results[f"valid_{self.metric}"]
+                # if self.metric == 'rmse':
+                #     self.early_stopping(score, 'min')
+                #     if score < best_valid_score:
+                #         best_valid_score = score
+                #         best_valid_epoch = curr_epoch
+                # else:
+                #     self.early_stopping(score, 'max')
+                #     if score > best_valid_score:
+                #         best_valid_score = score
+                #         best_valid_epoch = curr_epoch
 
-                valid_results |= {
-                    'best_valid_epoch': best_valid_epoch,
-                    'best_valid_score': best_valid_score,
-                    'early_stop_counter': self.early_stopping.counter,
-                }
+                # valid_results |= {
+                #     'best_valid_epoch': best_valid_epoch,
+                #     'best_valid_score': best_valid_score,
+                #     'early_stop_counter': self.early_stopping.counter,
+                # }
                 all_results |= valid_results
 
-            if test_loader is not None:
-                results = self.test(test_loader)
-                test_results = {f"test_{metric}": value for metric, value in results.items()}
+            if test_loaders is not None:
+                test_results = {}
+                for i, test_loader in enumerate(test_loaders):
+                    results = self.test(test_loader)
+                    test_results |= {f"{i}_test_{metric}": value for metric, value in results.items()}
 
-                if curr_epoch == best_valid_epoch:
-                    selected_test_score = test_results[f"test_{self.metric}"]
+                # if curr_epoch == best_valid_epoch:
+                #     selected_test_score = test_results[f"test_{self.metric}"]
 
-                test_results |= {'selected_test_score': selected_test_score}
+                # test_results |= {'selected_test_score': selected_test_score}
                 all_results |= test_results
 
             pbar.set_postfix({'selected_test_score': selected_test_score})

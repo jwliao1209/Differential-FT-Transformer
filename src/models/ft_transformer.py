@@ -60,10 +60,12 @@ class FTTransformer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
+        X: torch.Tensor,
         y: Optional[torch.Tensor] = None,
+        *args,
+        **kwargs,
     ):
-        x = self.feat_tokenizer(x)
+        x = self.feat_tokenizer(X)
         x_res = x
         for i, layer in enumerate(self.layers):
             if i != len(self.layers) - 1: 
@@ -87,8 +89,8 @@ class FTTransformer(nn.Module):
             return {'pred': y_hat, 'loss': loss}
         return {'pred': y_hat}
 
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)['pred']
+    def predict(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        return self.forward(X)['pred']
 
 
 class FTTransformerClassifier(BaseClassifier, FTTransformer):
