@@ -376,8 +376,8 @@ class DOFENTransformer(nn.Module):
             return {'pred': y_hat, 'loss': loss}
         return {'pred': y_hat}
 
-    def predict(self, X: torch.Tensor, quantile: torch.Tensor) -> torch.Tensor:
-        return self.forward(X=X, quantile=quantile)['pred']
+    def predict(self, X: torch.Tensor, quantile: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        return self.forward(X=X, quantile=quantile, mask=mask)['pred']
 
 
 class DOFENTransformerClassifier(BaseClassifier, DOFENTransformer):
