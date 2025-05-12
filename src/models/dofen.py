@@ -303,7 +303,7 @@ class DOFEN(nn.Module):
         return {'pred': y_hat}
 
     def predict(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
-        return self.forward(X)['pred']
+        return self.forward(X)['pred'].argmax(dim=1)
 
 
 class DOFENClassifier(BaseClassifier, DOFEN):
