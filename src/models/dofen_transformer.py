@@ -118,15 +118,18 @@ class ConditionGeneration(nn.Module):
 
 
 class rODTConstruction(nn.Module):
-    def __init__(self, n_cond: int, n_col: int, d: int) -> None:
+    def __init__(self, n_cond: int, n_col: int) -> None:
         super().__init__()
         # self.permutator = torch.rand(n_cond * n_col).argsort(-1)
+        self.n_cond = n_cond
+        self.n_col = n_col
         self.permutator = torch.stack([torch.randperm(n_cond) for _ in range(n_col)])
-        self.d = d
 
     def forward(self, M: torch.Tensor) -> torch.Tensor:
         # b, _, _, embed_dim = M.shape
         # return M.reshape(b, -1, embed_dim)[:, self.permutator, :].reshape(b, -1, self.d, embed_dim)
+
+        # self.permutator = torch.stack([torch.randperm(self.n_cond) for _ in range(self.n_col)])
 
         # Build batch and column indices
         b, n_cond, n_col, _ = M.shape
@@ -231,15 +234,22 @@ class MultiheadAttention(nn.Module):
         src_len = x.size(1)
 
         qkv = self.qkv_proj(x)  # Linear(x) -> [B, N, 6 * embed_dim]
-        qw, kw, vw, qE, kE, vE = torch.split(qkv, 64, dim=-1)
+        qw, kw, vw, qE, kE, vE = torch.split(qkv, self.embed_dim, dim=-1)
 
         # Reshape into multihead format
         qw = qw.view(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, tgt_len, head_dim)
         kw = kw.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim)
         vw = vw.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, 1)
+        attn_logits_w = torch.matmul(qw, kw.transpose(-2, -1)) / self.scaling            # shape: (batch_size, num_heads, tgt_len, src_len)
 
-        attn_w = F.softmax(torch.matmul(qw, kw.transpose(-2, -1)) / self.scaling, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
-        attn_w = self.dropout(attn_w) 
+        if mask is not None:
+            mask = mask.bool()
+            attn_mask = (mask.unsqueeze(2) & mask.unsqueeze(1)).unsqueeze(1) if mask is not None else None
+            attn_logits_w = attn_logits_w.masked_fill(~attn_mask, float('-inf'))
+
+        attn_w = F.softmax(attn_logits_w, dim=-1)
+        attn_w = torch.nan_to_num(attn_w, nan=0.0)
+        attn_w = self.dropout(attn_w)
         attn_w_output = torch.matmul(attn_w, vw) # shape: (batch_size, num_heads, tgt_len, head_dim)
 
         # Reshape back to original dimensions
@@ -252,8 +262,13 @@ class MultiheadAttention(nn.Module):
         qE = qE.view(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, tgt_len, head_dim)
         kE = kE.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, head_dim)
         vE = vE.view(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, src_len, 1)
+        attn_logits_E = torch.matmul(qE, kE.transpose(-2, -1)) / self.scaling            # shape: (batch_size, num_heads, tgt_len, src_len)
 
-        attn_E = F.softmax(torch.matmul(qE, kE.transpose(-2, -1)) / self.scaling, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
+        if mask is not None:
+            attn_logits_E = attn_logits_E.masked_fill(~attn_mask, float('-inf'))
+
+        attn_E = F.softmax(attn_logits_E, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
+        attn_E = torch.nan_to_num(attn_E, nan=0.0)
         attn_E = self.dropout(attn_E) 
         attn_E_output = torch.matmul(attn_E, vE) # shape: (batch_size, num_heads, tgt_len, head_dim)
 
@@ -314,7 +329,6 @@ class DOFENTransformer(nn.Module):
         self.rodt_construction = rODTConstruction(
             self.n_cond,
             self.n_col,
-            self.d,
         )
         self.norm = nn.LayerNorm(n_hidden)
         self.attn = MultiheadAttention(
@@ -356,6 +370,11 @@ class DOFENTransformer(nn.Module):
         M = self.condition_generation(X, quantile)    # (b, n_cond, n_col, n_hidden)
         O = self.rodt_construction(M)                 # (b, n_cond, n_col, n_hidden) -> (b, n_rodt, d, n_hidden)
         O = O.reshape(-1, self.n_col, self.n_hidden)  # (b, n_cond, n_col, n_hidden) -> (b * n_cond, n_col, n_hidden)
+
+        mask = mask.view(-1, 1, mask.size(1)) \
+                .expand(-1, self.n_cond, -1) \
+                .reshape(-1, self.n_col) if mask is not None else None
+
         O = self.norm(O)
         w, E = self.attn(O, mask)
 
@@ -377,7 +396,7 @@ class DOFENTransformer(nn.Module):
         return {'pred': y_hat}
 
     def predict(self, X: torch.Tensor, quantile: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        return self.forward(X=X, quantile=quantile, mask=mask)['pred']
+        return self.forward(X=X, quantile=quantile, mask=mask)['pred'].argmax(dim=1)
 
 
 class DOFENTransformerClassifier(BaseClassifier, DOFENTransformer):
