@@ -90,7 +90,7 @@ class FTTransformer(nn.Module):
         return {'pred': y_hat}
 
     def predict(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
-        return self.forward(X)['pred']
+        return self.forward(X)['pred'].argmax(dim=1)
 
 
 class FTTransformerClassifier(BaseClassifier, FTTransformer):
@@ -106,6 +106,8 @@ class FTTransformerClassifier(BaseClassifier, FTTransformer):
         ffn_dropout_rate: float = 0.1,
         residual_dropout_rate: float = 0.,
         use_bias: bool = True,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
@@ -134,6 +136,8 @@ class FTTransformerRegressor(BaseRegressor, FTTransformer):
         ffn_dropout_rate: float = 0.1,
         residual_dropout_rate: float = 0.,
         use_bias: bool = True,
+        *args,
+        **kwargs,
     ) -> None:
 
         super().__init__(
