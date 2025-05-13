@@ -1,5 +1,6 @@
 name: ft
 model:
+  name: ft
   d_token: 192
   d_ffn_factor: 1.3333  # 4 / 3
   n_layer: 3
@@ -9,5 +10,9 @@ model:
   residual_dropout_rate: .0
   use_bias: true
   norm: layer_norm
+data:
+  target_transform: true
 trainer:
   lr: 1e-4
+  save_model: false
+  early_stop_patience: 100
