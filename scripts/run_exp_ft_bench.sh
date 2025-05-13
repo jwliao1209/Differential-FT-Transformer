@@ -26,7 +26,7 @@ for model in ${models[@]}; do
         python run.py \
             --data_dir ft_transformer_benchmark \
             --data_id $data_id \
-            --model $model \
+            --config $model \
             --n_epoch 500
     done
 done

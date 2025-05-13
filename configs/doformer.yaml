@@ -1,5 +1,6 @@
 name: doformer
 model:
+  name: doformer
   m: 16
   d: 4
   n_head: 4

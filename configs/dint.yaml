@@ -1,5 +1,6 @@
 name: dint
 model:
+  name: diff
   d_token: 192
   d_ffn_factor: 1.3333  # 4 / 3
   n_layer: 3

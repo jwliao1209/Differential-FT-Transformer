@@ -24,6 +24,10 @@ To train the model, run the command:
 ```
 bash scripts/run_exp.sh
 ```
+```
+python run.py --data_id <data_id or cross_table> \
+              --config <Filaname of yaml>
+```
 
 
 ## Unit Test

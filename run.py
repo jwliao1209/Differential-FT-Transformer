@@ -20,11 +20,10 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--project_name', type=str, default='DOFEN_exp')
     parser.add_argument('--data_dir', type=str, default='/home/jiawei/Desktop/github/DOFEN/tabular-benchmark/tabular_benchmark_data')
     parser.add_argument('--data_id', type=str, default='361060')
-    parser.add_argument('--model', type=str, default='doformer')
+    parser.add_argument('--config', type=str, default='doformer')
     parser.add_argument('--n_epoch', type=int, default=500)
     parser.add_argument('--batch_size', type=str, default=256)
     parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--cross_table', action='store_true')
     return parser.parse_args()
 
 
@@ -233,10 +232,10 @@ def prepare_cross_table_dataloader(data_dir: str, batch_size: int):
 
 def main() -> None:
     args = parse_arguments()
-    config = OmegaConf.load(Path('configs', f'{args.model}.yaml'))
+    config = OmegaConf.load(Path('configs', f'{args.config}.yaml'))
     set_random_seed()
 
-    if args.cross_table:
+    if args.data_id == 'cross_table':
         (
             train_loader,
             valid_loader,
@@ -264,7 +263,7 @@ def main() -> None:
         model_params['n_class'] = n_class
 
     model = get_model(
-        model_name=args.model + data_args['task'],
+        model_name=config.model.name + data_args['task'],
         model_config=model_params,
     )
 
@@ -293,7 +292,7 @@ def main() -> None:
         wandb.init(
             project=args.project_name,
             group=str(args.data_id),
-            name=f"{args.data_id}_{args.model}_{datetime.today().strftime('%m%d_%H:%M:%S')}",
+            name=f"{args.data_id}_{config.model.name}_{datetime.today().strftime('%m%d_%H:%M:%S')}",
             config=vars(args) | data_args,
         )
 

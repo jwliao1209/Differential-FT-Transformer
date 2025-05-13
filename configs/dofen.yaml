@@ -1,5 +1,6 @@
 name: dofen
 model:
+  name: dofen
   m: 16
   d: 4
   n_head: 4  # default 1
