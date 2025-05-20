@@ -3,7 +3,6 @@ from pathlib import Path
 from datetime import datetime
 
 import numpy as np
-import torch
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
 from sklearn.preprocessing import QuantileTransformer
@@ -23,6 +22,7 @@ def parse_arguments() -> Namespace:
     parser.add_argument('--config', type=str, default='doformer')
     parser.add_argument('--n_epoch', type=int, default=500)
     parser.add_argument('--batch_size', type=str, default=256)
+    parser.add_argument('--note', type=str, default=None)
     parser.add_argument('--debug', action='store_true')
     return parser.parse_args()
 
@@ -285,6 +285,19 @@ def main() -> None:
     eval_funs = cls_eval_funs if data_args['task'] == 'c' else reg_eval_funs
     metrics = 'accuracy' if data_args['task'] == 'c' else 'r2'
 
+    print("=" * 50)
+    print("Model:", config.model.name)
+    print("Number of features:", data_args['n_feature'])
+    print("Number of training samples:", data_args['n_train'])
+    print("Number of validation samples:", data_args['n_valid'])
+    print("Number of test samples:", data_args['n_test'])
+    print("Task:", data_args['task'])
+    print("Number of classes:", n_class)
+    print("Batch size:", args.batch_size)
+    print("Epochs:", args.n_epoch)
+    print("Metrics:", metrics)
+    print("=" * 50)
+
     if args.debug:
         wandb = None
     else:
@@ -293,7 +306,7 @@ def main() -> None:
             project=args.project_name,
             group=str(args.data_id),
             name=f"{args.data_id}_{config.model.name}_{datetime.today().strftime('%m%d_%H:%M:%S')}",
-            config=vars(args) | data_args,
+            config={'note': args.note} | vars(args) | data_args,
         )
 
     trainer = Trainer(
@@ -303,6 +316,7 @@ def main() -> None:
         eval_funs=eval_funs,
         metric=metrics,
         logger=wandb,
+        record_best_performance=False if args.data_id == 'cross_table' else True,
         **config.trainer,
     )
     trainer.fit(
