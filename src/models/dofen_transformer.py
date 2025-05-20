@@ -178,7 +178,7 @@ class rODTForestConstruction(nn.Module):
         ) # (b, n_forest, n_rodt, n_hidden)
 
         F = (w_prime * E_prime).sum(-2).reshape(
-            E.shape[0], self.n_forest, self.n_hidden
+            E.shape[0], self.n_forest, self.n_hidden,
         ) # (b, n_forest, n_hidden)
         return F
 
@@ -201,8 +201,9 @@ class rODTForestBagging(nn.Module):
 
 
 class MultiheadAttention(nn.Module):
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.) -> None:
+    def __init__(self, n_cond: int, embed_dim: int, num_heads: int, dropout: float = 0., token: str = "0th") -> None:
         super().__init__()
+        self.n_cond = n_cond
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
@@ -212,11 +213,20 @@ class MultiheadAttention(nn.Module):
         self.qkv_proj = self.create_linear(embed_dim, embed_dim * 6)
         self.ow_proj = self.create_linear(embed_dim, 1)
         self.oE_proj = self.create_linear(embed_dim, embed_dim)
-
         self.norm_w = nn.LayerNorm(embed_dim)
         self.norm_E = nn.LayerNorm(embed_dim)
-
         self.dropout = nn.Dropout(dropout)
+
+        self.token = token
+        if token in ["0th", "mean"]:
+            pass
+        elif token == "random":
+            # need to fix batch size, num col, device
+            self.rand_idx = torch.repeat_interleave(torch.randint(low=0, high=7, size=(n_cond,), device="cuda").unsqueeze(0), 256, dim=0).reshape(-1)
+        elif token == "learnable":
+            self.raw_cls = nn.Parameter(torch.randn(1, n_cond, 1, embed_dim))
+        else:
+            raise ValueError("token must be either 'mean', '0th', 'random' or 'learnable'")
 
     def create_linear(self, in_features: int, out_features: int) -> nn.Linear:
         linear = nn.Linear(in_features, out_features)
@@ -230,6 +240,11 @@ class MultiheadAttention(nn.Module):
         value: Tensor of shape (batch_size, src_len, embed_dim)
         attn_mask: Optional[Tensor] of shape (tgt_len, src_len) or (batch_size, tgt_len, src_len)
         """
+        # Combine learnable cls token
+        if self.token == "learnable":
+            cls_token = self.raw_cls.view(1, 64, 1, -1).expand(int(x.size(0) / 64), -1, -1, -1).reshape(-1, 1, 64)
+            x = torch.cat([cls_token, x], dim=1)
+
         batch_size, tgt_len, _ = x.size()
         src_len = x.size(1)
 
@@ -248,15 +263,26 @@ class MultiheadAttention(nn.Module):
             attn_logits_w = attn_logits_w.masked_fill(~attn_mask, float('-inf'))
 
         attn_w = F.softmax(attn_logits_w, dim=-1)
+        self.attn_w = attn_w.detach().clone()
         attn_w = torch.nan_to_num(attn_w, nan=0.0)
         attn_w = self.dropout(attn_w)
         attn_w_output = torch.matmul(attn_w, vw) # shape: (batch_size, num_heads, tgt_len, head_dim)
 
         # Reshape back to original dimensions
         attn_w_output = attn_w_output.transpose(1, 2).contiguous().view(batch_size, tgt_len, self.embed_dim)
-        attn_w_output = self.norm_w(attn_w_output[:, 0] + x[:, 0]) # shape: (batch_size, tgt_len, embed_dim)
-        w_output = self.ow_proj(attn_w_output) # shape: (batch_size, tgt_len, 1)
-        # w_output = w_output.mean(1)
+
+        if self.token == "mean":
+            attn_w_output = self.norm_w(attn_w_output + x)
+            w_output = self.ow_proj(attn_w_output)
+            w_output = w_output.mean(1)
+        elif self.token in ["0th", "learnable"]:
+            attn_w_output = self.norm_w(attn_w_output[:, 0] + x[:, 0]) # shape: (batch_size, tgt_len, embed_dim)
+            w_output = self.ow_proj(attn_w_output)
+        elif self.token == "random":
+            attn_w_output = self.norm_w(attn_w_output[torch.arange(batch_size), self.rand_idx[:batch_size]] + x[torch.arange(batch_size), self.rand_idx[:batch_size]])  # shape: (batch_size, tgt_len, embed_dim)
+            w_output = self.ow_proj(attn_w_output)
+        else:
+            raise ValueError("token must be either 'learnable', 'random', or '0th'")
 
         # Reshape into multihead format
         qE = qE.view(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2) # shape: (batch_size, num_heads, tgt_len, head_dim)
@@ -268,17 +294,35 @@ class MultiheadAttention(nn.Module):
             attn_logits_E = attn_logits_E.masked_fill(~attn_mask, float('-inf'))
 
         attn_E = F.softmax(attn_logits_E, dim=-1) # shape: (batch_size, num_heads, tgt_len, src_len)
+        self.attn_E = attn_E.detach().clone()
         attn_E = torch.nan_to_num(attn_E, nan=0.0)
         attn_E = self.dropout(attn_E) 
         attn_E_output = torch.matmul(attn_E, vE) # shape: (batch_size, num_heads, tgt_len, head_dim)
 
         # Reshape back to original dimensions
         attn_E_output = attn_E_output.transpose(1, 2).contiguous().view(batch_size, tgt_len, self.embed_dim) # shape: (batch_size, tgt_len, embed_dim)
-        attn_E_output = self.norm_E(attn_E_output[:, 0] + x[:, 0])
-        E_output = self.oE_proj(attn_E_output) # shape: (batch_size, tgt_len, embed_dim)
-        # E_output = E_output.mean(1)
 
-        return w_output, E_output
+        if self.token == "mean":
+            attn_E_output = self.norm_E(attn_E_output + x)
+            E_output = self.oE_proj(attn_E_output)
+            E_output = E_output.mean(1)
+        elif self.token in ["0th", "learnable"]:
+            attn_E_output = self.norm_E(attn_E_output[:, 0] + x[:, 0])
+            E_output = self.oE_proj(attn_E_output)
+        elif self.token == "random":
+            attn_E_output = self.norm_E(attn_E_output[torch.arange(batch_size), self.rand_idx[:batch_size]] + x[torch.arange(batch_size), self.rand_idx[:batch_size]])
+            E_output = self.oE_proj(attn_E_output)            
+        else:
+            raise ValueError("token must be either 'learnable', 'random', or '0th'")
+
+        # print(attn_w.mean(dim=(0, 1)).sum(dim=0).detach().cpu().tolist())
+
+        loss = - (attn_w * torch.log(attn_w + 1e-9)).sum(dim=-1).mean()
+        # print(loss.item())
+        self.w_output = w_output
+        self.E_output = E_output
+
+        return w_output, E_output, loss
 
 
 class DOFENTransformer(nn.Module):
@@ -332,6 +376,7 @@ class DOFENTransformer(nn.Module):
         )
         self.norm = nn.LayerNorm(n_hidden)
         self.attn = MultiheadAttention(
+            n_cond=self.n_cond,
             embed_dim=self.n_hidden,
             num_heads=n_head,
             dropout=0.2,
@@ -376,7 +421,7 @@ class DOFENTransformer(nn.Module):
                 .reshape(-1, self.n_col) if mask is not None else None
 
         O = self.norm(O)
-        w, E = self.attn(O, mask)
+        w, E, attn_loss = self.attn(O, mask)
 
         w = w.reshape(-1, self.n_cond, 1)
         E = E.reshape(-1, self.n_cond, self.n_hidden)
@@ -389,7 +434,7 @@ class DOFENTransformer(nn.Module):
             loss = self.compute_loss(
                 y_hats.permute(0, 2, 1) if not self.is_rgr else y_hats, 
                 y.unsqueeze(-1).expand(-1, self.n_forest)
-            )
+            ) #+ 1 * attn_loss
             if self.n_forest > 1 and self.training and self.use_bagging_loss:
                 loss += self.compute_loss(y_hat, y)
             return {'pred': y_hat, 'loss': loss}
