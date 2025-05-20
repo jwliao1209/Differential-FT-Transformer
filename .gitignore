@@ -177,4 +177,5 @@ data/
 ft_transformer_benchmark*/
 revisiting_models_data.tar.gz
 analysis/
+checkpoints/
 scripts/run_debug.sh
