@@ -22,6 +22,7 @@ class Trainer:
         save_model: bool = False,
         early_stop_patience: int = float('inf'),
         verbose: bool = True,
+        record_best_performance: bool = True,
     ) -> None:
 
         self.model = model
@@ -33,6 +34,7 @@ class Trainer:
         self.metric = metric
         self.logger = logger
         self.save_model = save_model
+        self.record_best_performance = record_best_performance
         self.verbose = verbose
         self.early_stopping = EarlyStopping(patience=early_stop_patience)
         self.device = torch.device(device)
@@ -115,23 +117,25 @@ class Trainer:
                     results = self.test(valid_loader)
                     valid_results |= {f"{i}_valid_{metric}": value for metric, value in results.items()}
 
-                # score = valid_results[f"valid_{self.metric}"]
-                # if self.metric == 'rmse':
-                #     self.early_stopping(score, 'min')
-                #     if score < best_valid_score:
-                #         best_valid_score = score
-                #         best_valid_epoch = curr_epoch
-                # else:
-                #     self.early_stopping(score, 'max')
-                #     if score > best_valid_score:
-                #         best_valid_score = score
-                #         best_valid_epoch = curr_epoch
+                if self.record_best_performance:
+                    score = valid_results[f"0_valid_{self.metric}"]
+                    if self.metric == 'rmse':
+                        self.early_stopping(score, 'min')
+                        if score < best_valid_score:
+                            best_valid_score = score
+                            best_valid_epoch = curr_epoch
+                    else:
+                        self.early_stopping(score, 'max')
+                        if score > best_valid_score:
+                            best_valid_score = score
+                            best_valid_epoch = curr_epoch
 
-                # valid_results |= {
-                #     'best_valid_epoch': best_valid_epoch,
-                #     'best_valid_score': best_valid_score,
-                #     'early_stop_counter': self.early_stopping.counter,
-                # }
+                    valid_results |= {
+                        'best_valid_epoch': best_valid_epoch,
+                        'best_valid_score': best_valid_score,
+                        'early_stop_counter': self.early_stopping.counter,
+                    }
+
                 all_results |= valid_results
 
             if test_loaders is not None:
@@ -140,10 +144,12 @@ class Trainer:
                     results = self.test(test_loader)
                     test_results |= {f"{i}_test_{metric}": value for metric, value in results.items()}
 
-                # if curr_epoch == best_valid_epoch:
-                #     selected_test_score = test_results[f"test_{self.metric}"]
+                if self.record_best_performance:
+                    if curr_epoch == best_valid_epoch:
+                        selected_test_score = test_results[f"0_test_{self.metric}"]
 
-                # test_results |= {'selected_test_score': selected_test_score}
+                    test_results |= {'selected_test_score': selected_test_score}
+
                 all_results |= test_results
 
             pbar.set_postfix({'selected_test_score': selected_test_score})
